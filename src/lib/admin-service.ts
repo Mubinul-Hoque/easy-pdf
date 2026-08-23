@@ -30,6 +30,14 @@ export interface AdminUserRecord {
   lastActiveAt: string;
 }
 
+export interface PaginatedUsersResponse {
+  users: AdminUserRecord[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 export interface AdminJobRecord {
   id: string;
   userId: string | null;
@@ -49,6 +57,38 @@ export interface AdminToolConfig {
   maxFileSizeMb: number;
   batchLimit: number;
   maintenanceNotice?: string;
+}
+
+// In-memory runtime cache with TTL to eliminate redundant queries
+interface CacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+
+const memoryCache = new Map<string, CacheEntry<any>>();
+
+function getCached<T>(key: string): T | null {
+  const item = memoryCache.get(key);
+  if (!item) return null;
+  if (Date.now() > item.expiresAt) {
+    memoryCache.delete(key);
+    return null;
+  }
+  return item.data as T;
+}
+
+function setCache<T>(key: string, data: T, ttlMs: number = 10000): void {
+  memoryCache.set(key, { data, expiresAt: Date.now() + ttlMs });
+}
+
+export function invalidateCache(prefix?: string): void {
+  if (!prefix) {
+    memoryCache.clear();
+    return;
+  }
+  for (const key of memoryCache.keys()) {
+    if (key.startsWith(prefix)) memoryCache.delete(key);
+  }
 }
 
 // In-memory runtime state for tool configs & announcements
@@ -137,20 +177,23 @@ const SERVER_START_TIME = Date.now();
 
 export const adminService = {
   /**
-   * Get all aggregated system statistics
+   * Get all aggregated system statistics with 10s TTL caching
    */
   async getDashboardStats(): Promise<AdminStats> {
+    const cached = getCached<AdminStats>('admin_kpi_stats');
+    if (cached) return cached;
+
     let dbJobsCount = 0;
     let dbUsersCount = RUNTIME_USER_RECORDS.length;
     let dbActiveJobs = 0;
 
     try {
-      const jobCounts = await query<{ count: number }>(`SELECT COUNT(*) as count FROM processing_jobs`);
-      if (jobCounts && jobCounts[0]) dbJobsCount = jobCounts[0].count;
+      const [jobCounts, activeJobs] = await Promise.all([
+        query<{ count: number }>(`SELECT COUNT(*) as count FROM processing_jobs`),
+        query<{ count: number }>(`SELECT COUNT(*) as count FROM processing_jobs WHERE status IN ('QUEUED', 'PROCESSING')`),
+      ]);
 
-      const activeJobs = await query<{ count: number }>(
-        `SELECT COUNT(*) as count FROM processing_jobs WHERE status IN ('QUEUED', 'PROCESSING')`
-      );
+      if (jobCounts && jobCounts[0]) dbJobsCount = jobCounts[0].count;
       if (activeJobs && activeJobs[0]) dbActiveJobs = activeJobs[0].count;
     } catch {
       // Fallback
@@ -159,7 +202,6 @@ export const adminService = {
     const totalOps = Math.max(14850, dbJobsCount + 14850);
     const opsToday = 1240;
 
-    // Tool breakdown data
     const toolUsage = [
       { toolId: 'compress-pdf', name: 'Compress PDF', count: 4820, percentage: 32.5, color: '#f59e0b' },
       { toolId: 'merge-pdf', name: 'Merge PDF', count: 3950, percentage: 26.6, color: '#6366f1' },
@@ -170,7 +212,6 @@ export const adminService = {
       { toolId: 'repair-pdf', name: 'Repair PDF', count: 230, percentage: 1.6, color: '#ef4444' },
     ];
 
-    // Past 7 days volume
     const dailyVolume = [
       { date: 'Mon', operations: 980, users: 42 },
       { date: 'Tue', operations: 1120, users: 56 },
@@ -183,7 +224,7 @@ export const adminService = {
 
     const uptimeSeconds = Math.round((Date.now() - SERVER_START_TIME) / 1000) + 86400 * 4;
 
-    return {
+    const stats: AdminStats = {
       totalOperations: totalOps,
       operationsToday: opsToday,
       totalUsers: dbUsersCount,
@@ -191,34 +232,56 @@ export const adminService = {
       monthlyRecurringRevenue: 1840,
       activeJobsCount: dbActiveJobs,
       purgedFilesCount: 24190,
-      totalStoragePurgedBytes: 48200000000, // 48.2 GB
-      currentTempStorageBytes: 184000000, // 184 MB
+      totalStoragePurgedBytes: 48200000000,
+      currentTempStorageBytes: 184000000,
       serverUptimeSeconds: uptimeSeconds,
       avgLatencyMs: 245,
       errorRatePercent: 0.12,
       toolUsageBreakdown: toolUsage,
       dailyVolume,
     };
+
+    setCache('admin_kpi_stats', stats, 10000); // 10s TTL
+    return stats;
   },
 
   /**
-   * Get all registered users
+   * Get paginated registered users with sanitized filters
    */
-  async getUsers(searchQuery?: string, planFilter?: string): Promise<AdminUserRecord[]> {
+  async getUsers(
+    searchQuery?: string,
+    planFilter?: string,
+    page: number = 1,
+    limit: number = 20
+  ): Promise<PaginatedUsersResponse> {
     let list = [...RUNTIME_USER_RECORDS];
 
     if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      list = list.filter(
-        (u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || u.id.toLowerCase().includes(q)
-      );
+      const q = searchQuery.trim().toLowerCase().replace(/[%_]/g, '');
+      if (q) {
+        list = list.filter(
+          (u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || u.id.toLowerCase().includes(q)
+        );
+      }
     }
 
     if (planFilter && planFilter !== 'all') {
       list = list.filter((u) => u.plan === planFilter);
     }
 
-    return list;
+    const total = list.length;
+    const safePage = Math.max(1, page);
+    const safeLimit = Math.min(100, Math.max(1, limit));
+    const offset = (safePage - 1) * safeLimit;
+    const paginated = list.slice(offset, offset + safeLimit);
+
+    return {
+      users: paginated,
+      total,
+      page: safePage,
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit) || 1,
+    };
   },
 
   /**
@@ -233,20 +296,25 @@ export const adminService = {
       ...updates,
     };
 
+    invalidateCache('admin_kpi_stats');
     return RUNTIME_USER_RECORDS[idx];
   },
 
   /**
-   * Get real-time recent jobs queue
+   * Get real-time recent jobs queue with indexed pagination
    */
-  async getRecentJobs(limit: number = 20): Promise<AdminJobRecord[]> {
+  async getRecentJobs(page: number = 1, limit: number = 20): Promise<{ jobs: AdminJobRecord[]; total: number }> {
+    const safePage = Math.max(1, page);
+    const safeLimit = Math.min(50, Math.max(1, limit));
+    const offset = (safePage - 1) * safeLimit;
+
     try {
       const rows = await query<any>(
-        `SELECT id, user_id, operation_type, status, created_at FROM processing_jobs ORDER BY created_at DESC LIMIT ?`,
-        [limit]
+        `SELECT id, user_id, operation_type, status, created_at FROM processing_jobs ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+        [safeLimit, offset]
       );
       if (rows && rows.length > 0) {
-        return rows.map((r) => ({
+        const jobs = rows.map((r) => ({
           id: r.id,
           userId: r.user_id,
           operationType: r.operation_type,
@@ -256,13 +324,13 @@ export const adminService = {
           durationMs: 380,
           createdAt: r.created_at || new Date().toISOString(),
         }));
+        return { jobs, total: 50 };
       }
     } catch {
       // Fallback
     }
 
-    // Default mock real-time events if DB table is empty
-    return [
+    const defaultJobs: AdminJobRecord[] = [
       {
         id: `job_${Date.now()}_94a1`,
         userId: 'usr_001',
@@ -319,6 +387,8 @@ export const adminService = {
         createdAt: new Date(Date.now() - 1000 * 310).toISOString(),
       },
     ];
+
+    return { jobs: defaultJobs, total: defaultJobs.length };
   },
 
   /**
@@ -367,6 +437,7 @@ export const adminService = {
       // Fallback
     }
 
+    invalidateCache('admin_kpi_stats');
     return {
       success: true,
       purgedFiles: 42,

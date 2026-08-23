@@ -10,11 +10,22 @@ export async function GET(req: NextRequest) {
     }
 
     const { searchParams } = new URL(req.url);
-    const search = searchParams.get('search') || undefined;
+    const search = searchParams.get('search')?.slice(0, 100) || undefined;
     const plan = searchParams.get('plan') || undefined;
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '25', 10)));
 
-    const users = await adminService.getUsers(search, plan);
-    return NextResponse.json({ success: true, users });
+    const result = await adminService.getUsers(search, plan, page, limit);
+    return NextResponse.json({
+      success: true,
+      users: result.users,
+      pagination: {
+        total: result.total,
+        page: result.page,
+        limit: result.limit,
+        totalPages: result.totalPages,
+      },
+    });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
@@ -30,11 +41,24 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json();
     const { userId, updates } = body;
 
-    if (!userId || !updates) {
-      return NextResponse.json({ success: false, error: 'Missing userId or updates' }, { status: 400 });
+    if (!userId || typeof userId !== 'string' || !updates || typeof updates !== 'object') {
+      return NextResponse.json({ success: false, error: 'Invalid userId or updates format' }, { status: 400 });
     }
 
-    const updated = await adminService.updateUser(userId, updates);
+    // Input whitelist validation
+    const allowedUpdates: any = {};
+    if (updates.plan && ['free', 'pro', 'business'].includes(updates.plan)) {
+      allowedUpdates.plan = updates.plan;
+    }
+    if (updates.status && ['active', 'suspended', 'pending'].includes(updates.status)) {
+      allowedUpdates.status = updates.status;
+    }
+
+    if (Object.keys(allowedUpdates).length === 0) {
+      return NextResponse.json({ success: false, error: 'No valid update fields provided' }, { status: 400 });
+    }
+
+    const updated = await adminService.updateUser(userId, allowedUpdates);
     return NextResponse.json({ success: true, user: updated });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });

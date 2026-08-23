@@ -1,28 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/db';
 
+const SUPPORTED_ACTIONS = new Set([
+  'merge',
+  'split',
+  'organize',
+  'rotate',
+  'compress',
+  'repair',
+  'ocr',
+]);
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ action: string }> }
 ) {
   try {
     const { action } = await params;
-    const body = await req.json().catch(() => ({}));
+    const cleanAction = (action || '').toLowerCase().trim();
 
-    // Generate unique job ticket
-    const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-
-    const supportedActions = [
-      'merge',
-      'split',
-      'organize',
-      'rotate',
-      'compress',
-      'repair',
-      'ocr',
-    ];
-
-    if (!supportedActions.includes(action)) {
+    if (!SUPPORTED_ACTIONS.has(cleanAction)) {
       return NextResponse.json(
         {
           success: false,
@@ -35,15 +32,34 @@ export async function POST(
       );
     }
 
+    const body = await req.json().catch(() => ({}));
+
+    // Generate unique job ticket
+    const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+    // Validate and sanitize files array
+    const rawFiles = Array.isArray(body.files) ? body.files : [];
+    const sanitizedFiles = rawFiles.slice(0, 100).map((f: any) => ({
+      name: typeof f?.name === 'string' ? f.name.slice(0, 255) : 'document.pdf',
+      size: typeof f?.size === 'number' ? Math.max(0, f.size) : 0,
+    }));
+
+    const safePriority = Math.max(1, Math.min(10, Number(body.priority) || 5));
+    const safeUserId = typeof body.userId === 'string' ? body.userId.slice(0, 64) : null;
+
     // Persist to MySQL processing_jobs table
     try {
       await dbService.createJob({
         id: jobId,
-        userId: body.userId || null,
-        operationType: action,
-        priority: body.priority || 5,
-        inputFiles: body.files || [],
-        parameters: body,
+        userId: safeUserId,
+        operationType: cleanAction,
+        priority: safePriority,
+        inputFiles: sanitizedFiles,
+        parameters: {
+          level: body.level || undefined,
+          mode: body.mode || undefined,
+          ranges: body.ranges || undefined,
+        },
       });
     } catch (dbErr) {
       console.warn('MySQL Job Logging notice:', dbErr);
@@ -53,12 +69,11 @@ export async function POST(
       success: true,
       data: {
         jobId,
-        action,
+        action: cleanAction,
         status: 'QUEUED',
         queuePosition: 1,
         estimatedDurationMs: 1200,
         createdAt: new Date().toISOString(),
-        payload: body,
       },
       error: null,
       meta: {
