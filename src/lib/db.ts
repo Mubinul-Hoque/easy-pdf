@@ -60,6 +60,25 @@ export const DEFAULT_PLANS: Plan[] = [
   },
 ];
 
+// In-Memory Database Query Cache with TTL
+interface DbCacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+const queryCache = new Map<string, DbCacheEntry<any>>();
+
+export function invalidateQueryCache(prefix?: string): void {
+  if (!prefix) {
+    queryCache.clear();
+    return;
+  }
+  for (const key of queryCache.keys()) {
+    if (key.includes(prefix)) {
+      queryCache.delete(key);
+    }
+  }
+}
+
 // Global singleton MySQL connection pool to avoid socket leaks on Next.js reloads
 declare global {
   var __easypdf_mysql_pool: mysql.Pool | undefined;
@@ -103,13 +122,42 @@ export async function query<T = any>(sql: string, params: any[] = []): Promise<T
 }
 
 /**
+ * Execute SQL query with in-memory TTL caching for high read-throughput static/settings tables
+ */
+export async function cachedQuery<T = any>(
+  sql: string,
+  params: any[] = [],
+  ttlSeconds: number = 30
+): Promise<T[]> {
+  const cacheKey = `${sql}:${JSON.stringify(params)}`;
+  const cached = queryCache.get(cacheKey);
+  const now = Date.now();
+
+  if (cached && now < cached.expiresAt) {
+    return cached.data as T[];
+  }
+
+  const results = await query<T>(sql, params);
+  queryCache.set(cacheKey, {
+    data: results,
+    expiresAt: now + ttlSeconds * 1000,
+  });
+
+  return results;
+}
+
+/**
  * Database Services for EasyPDF
  */
 export const dbService = {
-  // 1. Get all active subscription plans (with built-in fallback)
+  // 1. Get all active subscription plans (with cached query)
   async getPlans(): Promise<Plan[]> {
     try {
-      const plans = await query<Plan>(`SELECT * FROM plans WHERE is_active = 1 ORDER BY price_monthly ASC`);
+      const plans = await cachedQuery<Plan>(
+        `SELECT * FROM plans WHERE is_active = 1 ORDER BY price_monthly ASC`,
+        [],
+        60 // Cache for 60s
+      );
       if (plans && plans.length > 0) {
         return plans;
       }
