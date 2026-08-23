@@ -11,8 +11,14 @@ const inter = Inter({
   weight: ['400', '500', '600', '700', '800', '900'],
 });
 
+const siteUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://easypdf.io';
+
 export const metadata: Metadata = {
-  title: 'EasyPDF — Enterprise Online PDF Suite & Document Tools',
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: 'EasyPDF — Enterprise Online PDF Suite & Document Tools',
+    template: '%s | EasyPDF',
+  },
   description:
     'All-in-one PDF platform. Merge, split, organize, rotate, compress, repair, and OCR PDF documents with instant speed and strict zero-retention privacy.',
   keywords: [
@@ -24,7 +30,40 @@ export const metadata: Metadata = {
     'Repair PDF',
     'OCR PDF',
     'Online PDF editor',
+    'Searchable PDF generator',
   ],
+  authors: [{ name: 'EasyPDF Team' }],
+  creator: 'EasyPDF',
+  publisher: 'EasyPDF',
+  alternates: {
+    canonical: './',
+  },
+  openGraph: {
+    type: 'website',
+    locale: 'en_US',
+    url: siteUrl,
+    title: 'EasyPDF — Enterprise Online PDF Suite & Document Tools',
+    description:
+      'All-in-one PDF platform. Merge, split, organize, rotate, compress, repair, and OCR PDF documents with instant speed and zero-retention privacy.',
+    siteName: 'EasyPDF',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'EasyPDF — Enterprise Online PDF Suite & Document Tools',
+    description:
+      'Fast, private, and powerful PDF tools. Merge, split, compress, and OCR documents with zero data retention.',
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-video-preview': -1,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
+  },
 };
 
 export default function RootLayout({
