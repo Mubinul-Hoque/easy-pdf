@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Search,
   Users,
@@ -8,11 +8,12 @@ import {
   ShieldCheck,
   CheckCircle2,
   XCircle,
-  MoreVertical,
   Filter,
   ArrowUpDown,
   Mail,
-  UserCheck,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
 } from 'lucide-react';
 import { AdminUserRecord } from '@/lib/admin-service';
 
@@ -22,35 +23,58 @@ interface AdminUsersTabProps {
 
 export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({ token }) => {
   const [users, setUsers] = useState<AdminUserRecord[]>([]);
-  const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [planFilter, setPlanFilter] = useState<string>('all');
+  const [page, setPage] = useState<number>(1);
+  const [limit, setLimit] = useState<number>(25);
+  const [totalPages, setTotalPages] = useState<number>(1);
+  const [totalCount, setTotalCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
-  const fetchUsers = async () => {
+  // Debounce search input by 300ms to eliminate redundant API spam
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchInput);
+      setPage(1); // Reset to page 1 on new search
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  const fetchUsers = useCallback(async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
-      if (search) params.set('search', search);
+      if (debouncedSearch) params.set('search', debouncedSearch);
       if (planFilter !== 'all') params.set('plan', planFilter);
+      params.set('page', page.toString());
+      params.set('limit', limit.toString());
 
       const res = await fetch(`/api/admin/users?${params.toString()}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const data = await res.json();
       if (data.success) {
-        setUsers(data.users);
+        setUsers(data.users || []);
+        if (data.pagination) {
+          setTotalPages(data.pagination.totalPages || 1);
+          setTotalCount(data.pagination.total || 0);
+        } else {
+          setTotalCount(data.users?.length || 0);
+          setTotalPages(1);
+        }
       }
     } catch (err) {
-      console.error(err);
+      console.error('Failed to fetch users:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [debouncedSearch, planFilter, page, limit, token]);
 
   useEffect(() => {
     fetchUsers();
-  }, [search, planFilter]);
+  }, [fetchUsers]);
 
   const handleUpdatePlan = async (userId: string, newPlan: 'free' | 'pro' | 'business') => {
     try {
@@ -107,9 +131,9 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({ token }) => {
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search users by name, email, or user ID..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search users by name, email, or user ID (debounced)..."
             className="w-full pl-10 pr-4 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
           />
         </div>
@@ -121,7 +145,10 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({ token }) => {
           </div>
           <select
             value={planFilter}
-            onChange={(e) => setPlanFilter(e.target.value)}
+            onChange={(e) => {
+              setPlanFilter(e.target.value);
+              setPage(1);
+            }}
             className="text-xs font-semibold rounded-xl border border-slate-200 px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
           >
             <option value="all">All Plans</option>
@@ -138,10 +165,15 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({ token }) => {
           <div className="flex items-center gap-2">
             <Users className="h-4 w-4 text-indigo-600" />
             <h3 className="font-bold text-xs uppercase tracking-wider text-slate-900">
-              Registered Accounts ({users.length})
+              Registered Accounts ({totalCount})
             </h3>
           </div>
-          <span className="text-xs text-slate-400 font-medium">Auto-synced with MySQL DB</span>
+          {loading && (
+            <div className="flex items-center gap-1.5 text-xs text-indigo-600 font-semibold">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Syncing...
+            </div>
+          )}
         </div>
 
         <div className="overflow-x-auto">
@@ -245,8 +277,40 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({ token }) => {
                   </td>
                 </tr>
               ))}
+              {users.length === 0 && !loading && (
+                <tr>
+                  <td colSpan={7} className="text-center py-10 text-slate-400 text-xs font-semibold">
+                    No matching user accounts found.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
+        </div>
+
+        {/* Pagination Footer */}
+        <div className="p-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50/50">
+          <p className="text-xs text-slate-500 font-medium">
+            Showing Page <span className="font-bold text-slate-800">{page}</span> of{' '}
+            <span className="font-bold text-slate-800">{totalPages}</span> ({totalCount} total users)
+          </p>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1 || loading}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40 transition-colors shadow-sm"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" /> Previous
+            </button>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages || loading}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40 transition-colors shadow-sm"
+            >
+              Next <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
       </div>
     </div>
