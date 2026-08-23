@@ -17,6 +17,7 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 import { AdminStats, AdminJobRecord } from '@/lib/admin-service';
+import { formatBytes, formatUptime } from '@/lib/format-utils';
 
 interface AdminOverviewTabProps {
   stats: AdminStats | null;
@@ -41,19 +42,6 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
       </div>
     );
   }
-
-  const formatBytes = (bytes: number) => {
-    if (bytes >= 1024 * 1024 * 1024) {
-      return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
-    }
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  };
-
-  const formatUptime = (seconds: number) => {
-    const days = Math.floor(seconds / 86400);
-    const hrs = Math.floor((seconds % 86400) / 3600);
-    return `${days}d ${hrs}h`;
-  };
 
   const exportJobsCSV = () => {
     const headers = 'Job ID,Operation,User Email,Payload Bytes,Latency (ms),Status,Dispatched At\n';

@@ -16,6 +16,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { AdminUserRecord } from '@/lib/admin-service';
+import { formatBytes } from '@/lib/format-utils';
 
 interface AdminUsersTabProps {
   token?: string;
@@ -120,8 +121,6 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({ token }) => {
       setUpdatingId(null);
     }
   };
-
-  const formatBytes = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 
   return (
     <div className="space-y-6">

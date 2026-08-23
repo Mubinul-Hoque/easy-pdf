@@ -19,6 +19,7 @@ import {
   triggerBatchDownload,
   requestServerFileCleanup,
 } from '@/lib/download-manager';
+import { formatBytes } from '@/lib/format-utils';
 
 interface ProcessingModalProps {
   progress: JobProgress;
@@ -97,13 +98,7 @@ const ProcessingModalComponent: React.FC<ProcessingModalProps> = ({
 
   if (progress.status === 'idle') return null;
 
-  const formatSize = (bytes?: number) => {
-    if (!bytes) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
-  };
+  const formatSize = (bytes?: number) => formatBytes(bytes, 2);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">

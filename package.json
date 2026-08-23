@@ -10,11 +10,7 @@
   },
   "dependencies": {
     "clsx": "^2.1.1",
-    "docx": "^9.1.1",
-    "docx-preview": "^0.4.0",
     "framer-motion": "^11.15.0",
-    "html2canvas": "^1.4.1",
-    "jspdf": "^4.2.1",
     "jszip": "^3.10.1",
     "lucide-react": "^0.468.0",
     "mysql2": "^3.23.4",
@@ -25,8 +21,7 @@
     "react-dom": "^19.0.0",
     "react-dropzone": "^14.3.5",
     "tailwind-merge": "^2.5.5",
-    "tesseract.js": "^5.1.1",
-    "xlsx": "^0.18.5"
+    "tesseract.js": "^5.1.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
