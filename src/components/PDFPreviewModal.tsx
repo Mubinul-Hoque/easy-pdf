@@ -15,7 +15,7 @@ export interface PDFPreviewModalProps {
   title?: string;
 }
 
-export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
+const PDFPreviewModalComponent: React.FC<PDFPreviewModalProps> = ({
   isOpen,
   onClose,
   file,
@@ -63,3 +63,6 @@ export const PDFPreviewModal: React.FC<PDFPreviewModalProps> = ({
     </div>
   );
 };
+
+export const PDFPreviewModal = React.memo(PDFPreviewModalComponent);
+

@@ -40,7 +40,7 @@ interface ThumbnailItem {
   aspectRatio?: number;
 }
 
-export const PDFPreviewFrame: React.FC<PDFPreviewFrameProps> = ({
+const PDFPreviewFrameComponent: React.FC<PDFPreviewFrameProps> = ({
   file,
   fileUrl,
   fileName,
@@ -705,3 +705,6 @@ export const PDFPreviewFrame: React.FC<PDFPreviewFrameProps> = ({
     </div>
   );
 };
+
+export const PDFPreviewFrame = React.memo(PDFPreviewFrameComponent);
+

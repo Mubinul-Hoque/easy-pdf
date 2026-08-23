@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import {
   Layers,
@@ -21,10 +21,13 @@ import { ToolCategory } from '@/lib/types';
 export default function HomePage() {
   const [selectedCategory, setSelectedCategory] = useState<'all' | 'organize' | 'optimize'>('all');
 
-  const filteredTools =
-    selectedCategory === 'all'
-      ? PDF_TOOLS
-      : PDF_TOOLS.filter((t) => t.category === selectedCategory);
+  const filteredTools = useMemo(
+    () =>
+      selectedCategory === 'all'
+        ? PDF_TOOLS
+        : PDF_TOOLS.filter((t) => t.category === selectedCategory),
+    [selectedCategory]
+  );
 
   const getToolIcon = (toolId: string) => {
     switch (toolId) {

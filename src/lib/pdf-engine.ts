@@ -300,6 +300,10 @@ export class PDFEngine {
               await page.render({ canvasContext: ctx, viewport: targetViewport }).promise;
 
               const jpegDataUrl = canvas.toDataURL('image/jpeg', quality);
+              // Clean canvas dimensions immediately to release raster bitmap memory
+              canvas.width = 0;
+              canvas.height = 0;
+
               const jpegBytes = await fetch(jpegDataUrl).then((r) => r.arrayBuffer());
               const embeddedImage = await newDoc.embedJpg(jpegBytes);
 
@@ -336,8 +340,15 @@ export class PDFEngine {
                   }
                 }
               } catch {}
+
+              // Yield to main thread for 60fps UI smoothness
+              await new Promise((r) => setTimeout(r, 0));
             }
           }
+
+          try {
+            await pdfDocSource.destroy();
+          } catch {}
 
           if (level === 'max') {
             newDoc.setTitle('');

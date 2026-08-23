@@ -27,7 +27,7 @@ interface ProcessingModalProps {
   onDownloadComplete?: (result: ProcessedResult) => void;
 }
 
-export const ProcessingModal: React.FC<ProcessingModalProps> = ({
+const ProcessingModalComponent: React.FC<ProcessingModalProps> = ({
   progress,
   onReset,
   title = 'Processing Document',
@@ -251,3 +251,6 @@ export const ProcessingModal: React.FC<ProcessingModalProps> = ({
     </div>
   );
 };
+
+export const ProcessingModal = React.memo(ProcessingModalComponent);
+

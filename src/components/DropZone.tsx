@@ -16,7 +16,7 @@ interface DropZoneProps {
   buttonLabel?: string;
 }
 
-export const DropZone: React.FC<DropZoneProps> = ({
+const DropZoneComponent: React.FC<DropZoneProps> = ({
   onFilesSelected,
   multiple = true,
   maxSizeMB = 100,
@@ -103,3 +103,6 @@ export const DropZone: React.FC<DropZoneProps> = ({
     </div>
   );
 };
+
+export const DropZone = React.memo(DropZoneComponent);
+

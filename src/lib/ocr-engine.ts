@@ -373,12 +373,16 @@ export class OCREngine {
 
       // Convert canvas to image bytes with high visual quality
       const imgDataUrl = canvas.toDataURL('image/png', 0.95);
+      // Immediately reset canvas bitmap to free memory
+      canvas.width = 0;
+      canvas.height = 0;
+
       const imgBytes = await fetch(imgDataUrl).then((r) => r.arrayBuffer());
       const embeddedImg = await pdfDoc.embedPng(imgBytes);
 
       // PDF page dimensions in standard points (72 DPI)
       const pdfWidth = 612;
-      const pdfHeight = Math.round((canvas.height / canvas.width) * pdfWidth);
+      const pdfHeight = Math.round((ocrPage.height / Math.max(1, ocrPage.width)) * pdfWidth);
 
       const page = pdfDoc.addPage([pdfWidth, pdfHeight]);
 
@@ -391,8 +395,8 @@ export class OCREngine {
       });
 
       // 2. Draw invisible selectable OCR text overlay
-      const scaleX = pdfWidth / canvas.width;
-      const scaleY = pdfHeight / canvas.height;
+      const scaleX = pdfWidth / Math.max(1, ocrPage.width);
+      const scaleY = pdfHeight / Math.max(1, ocrPage.height);
 
       for (const line of ocrPage.lines) {
         // If word-level bounding boxes exist, place word by word for pixel-perfect cursor selection
@@ -416,7 +420,7 @@ export class OCREngine {
                 opacity: 0.0001, // Invisible selectable text layer
               });
             } catch {
-              // Ignore font glyph mismatches
+              // Ignore
             }
           }
         } else {
@@ -443,6 +447,9 @@ export class OCREngine {
           }
         }
       }
+
+      // Yield to main thread for smooth progress bar and UI animations
+      await new Promise((r) => setTimeout(r, 0));
     }
 
     // Set searchable metadata
