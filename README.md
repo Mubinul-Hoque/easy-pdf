@@ -8,11 +8,12 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178c6?style=for-the-badge&logo=typescript&logoColor=white)
 ![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4-38bdf8?style=for-the-badge&logo=tailwindcss&logoColor=white)
 ![MySQL](https://img.shields.io/badge/MySQL-8.0%20%2F%20MariaDB-4479a1?style=for-the-badge&logo=mysql&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Ready-2496ed?style=for-the-badge&logo=docker&logoColor=white)
 ![Zero Retention](https://img.shields.io/badge/Security-Strict%20Zero--Retention-emerald?style=for-the-badge&logo=shieldcheck&logoColor=white)
 
 **A high-performance, private, client-first PDF productivity suite with live thumbnail organizing, neural OCR recognition, batch compression, and an enterprise Admin Operations Dashboard.**
 
-[Live Tools](#-core-pdf-tools-suite) • [Admin Dashboard](#-enterprise-admin-dashboard) • [Architecture](#-project-architecture) • [Getting Started](#-getting-started) • [Database Setup](#-database-setup--migrations)
+[Live Tools](#-core-pdf-tools-suite) • [Admin Dashboard](#-enterprise-admin-dashboard) • [Deployment Guide](#-production-deployment-guide) • [Architecture](#-project-architecture) • [Getting Started](#-getting-started)
 
 </div>
 
@@ -30,7 +31,7 @@ EasyPDF is engineered around a clean, modern 2-pillar architecture:
 
 ### 2. Optimize PDF
 * **Compress PDF** (`/tools/compress-pdf`): Multi-file batch PDF compression with customizable compression levels (*Extreme*, *Recommended*, *Low Compression*), percentage savings calculation, and ZIP / individual download packaging.
-* **Repair PDF** (`/tools/repair-pdf`): Deep-reconstruction syntax parser that recovers corrupted, damaged, or unreadable PDF file trees and objects.
+* **Repair PDF** (`/tools/repair-pdf`): Two-stage deep reconstruction parser that recovers corrupted, damaged, or unreadable PDF file trees and objects.
 * **OCR Searchable PDF** (`/tools/ocr-pdf`): High-accuracy neural OCR engine powered by Tesseract and Canvas computer vision preprocessing (contrast equalization, whitening, Laplacian sharpening). Features:
   - 12 language OCR models (English, Spanish, French, German, Italian, Portuguese, Chinese, Japanese, Russian, Arabic, Hindi, Dutch).
   - 4 specialized presets (*Balanced (Auto)*, *Tables & Invoices*, *High Contrast Scan*, *Faded Document Recovery*).
@@ -43,16 +44,17 @@ EasyPDF is engineered around a clean, modern 2-pillar architecture:
 
 * **Client-Side Heavy**: PDF operations (rendering, parsing, page manipulation, and OCR preprocessing) run locally in the browser whenever possible.
 * **Ephemeral Processing**: Server-assisted operations wipe memory buffers and temporary artifacts immediately upon user download or TTL timeout (15 mins – 24 hrs).
+* **HMAC-SHA256 Token Signing**: File upload and download tickets use tamper-proof signatures with strict expiration timeouts.
 * **No File Persistence**: Files are never permanently stored, indexed, or shared with third parties.
 
 ---
 
 ## 🚀 Enterprise Admin Dashboard
 
-Accessible at [`/admin`](http://localhost:3000/admin) with secure token authentication and passkey verification:
+Accessible at [`/admin`](http://localhost:3000/admin) with secure token authentication:
 
 * **Executive KPI Overview**: Total operations, today's volume, active users, subscription MRR, storage purged, average latency, and uptime.
-* **User & Subscription Manager**: View accounts, modify subscription tiers (Free, Pro, Business), and suspend/activate accounts.
+* **User & Subscription Manager**: View accounts with server-side pagination, modify subscription tiers (Free, Pro, Business), and suspend/activate accounts.
 * **Plan Pricing & Feature Limits Editor**: Edit plan prices ($), max upload file size (MB), daily operation limits, monthly OCR page allowances, and batch counts live without redeploying.
 * **Storage & Zero-Retention Telemetry**: Monitor temporary footprint, inspect lifetime auto-purged counts, and execute 1-click **Force Storage Purge**.
 * **PDF Tool Operational Switchboard**: Toggle individual tools into maintenance mode, update upload size thresholds, and broadcast global announcement banners.
@@ -62,9 +64,76 @@ Accessible at [`/admin`](http://localhost:3000/admin) with secure token authenti
 
 ---
 
+## 🐳 Production Deployment Guide
+
+EasyPDF is configured for high-performance standalone deployments with Next.js 15.
+
+### Option 1: Docker (Recommended)
+Build and run the multi-stage standalone container:
+```bash
+# Build the production container
+docker build -t easypdf:latest .
+
+# Run with environment variables
+docker run -d \
+  --name easypdf \
+  -p 3000:3000 \
+  -e MYSQL_HOST=your-db-host \
+  -e MYSQL_USER=easypdf_user \
+  -e MYSQL_PASSWORD=your_secure_password \
+  -e MYSQL_DATABASE=easypdf \
+  -e ADMIN_EMAIL=mubinulhq@gmail.com \
+  -e ADMIN_PASSWORD=your_admin_password \
+  easypdf:latest
+```
+
+### Option 2: PM2 Cluster on Ubuntu / Linux VPS
+```bash
+# 1. Install dependencies and build standalone package
+npm ci
+npm run build
+
+# 2. Start using PM2 cluster mode
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup
+```
+
+### Option 3: Vercel / Cloud Edge
+1. Push your repository to GitHub.
+2. Import the repository into [Vercel](https://vercel.com).
+3. Set the Environment Variables (`MYSQL_HOST`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `JWT_SECRET`, `ADMIN_SECRET`).
+4. Click **Deploy**.
+
+---
+
+## 🏥 Health Checks & Monitoring
+
+EasyPDF provides a production health check endpoint at `/api/health`:
+```bash
+curl -I http://localhost:3000/api/health
+```
+Returns:
+```json
+{
+  "status": "UP",
+  "timestamp": "2026-08-23T14:27:00.000Z",
+  "uptimeSeconds": 18420,
+  "environment": "production",
+  "services": {
+    "database": {
+      "status": "HEALTHY",
+      "latencyMs": 2
+    }
+  }
+}
+```
+
+---
+
 ## 🛠️ Tech Stack & Dependencies
 
-* **Framework**: [Next.js 15.5](https://nextjs.org/) (App Router, Server Components & Route Handlers)
+* **Framework**: [Next.js 15.5](https://nextjs.org/) (Standalone App Router)
 * **Frontend**: [React 19](https://react.dev/), [Tailwind CSS](https://tailwindcss.com/), [Lucide Icons](https://lucide.dev/)
 * **PDF Core**: `pdf-lib`, `pdfjs-dist`, `canvas`, `jszip`
 * **Neural OCR Engine**: `tesseract.js` with Web Assembly workers
@@ -73,118 +142,30 @@ Accessible at [`/admin`](http://localhost:3000/admin) with secure token authenti
 
 ---
 
-## 📁 Project Architecture
+## 🏁 Getting Started (Local Development)
 
-```text
-EasyPDF/
-├── database/
-│   └── schema.sql                # Complete MySQL DDL schema and initial seed data
-├── src/
-│   ├── app/
-│   │   ├── admin/                # Enterprise Admin Dashboard (/admin, /admin/login)
-│   │   ├── api/
-│   │   │   ├── admin/            # Admin API routes (auth, stats, users, plans, security, system)
-│   │   │   ├── pdf/[action]/     # PDF processing pipeline dispatcher
-│   │   │   └── files/            # File storage and cleanup handlers
-│   │   ├── tools/                # Dedicated tool pages (merge, split, organize, rotate, compress, repair, ocr)
-│   │   ├── pricing/              # Subscription pricing page
-│   │   ├── layout.tsx            # Root layout with Navbar and Footer
-│   │   └── page.tsx              # Homepage with categorized tool cards & search
-│   ├── components/
-│   │   ├── admin/                # Admin sub-views (Overview, Users, Plans, Files, Tools, Security, System)
-│   │   ├── Navbar.tsx            # Global navigation with mega-dropdown
-│   │   └── Footer.tsx            # Footer navigation
-│   └── lib/
-│       ├── admin-auth.ts         # Admin authentication, session tokens, and credentials
-│       ├── admin-service.ts      # Admin KPI aggregation and database service
-│       ├── db.ts                 # MySQL connection pool and resilient query runners
-│       ├── db-schema.ts          # Auto-migration runner for Admin system tab
-│       ├── ocr-engine.ts         # High-DPI rasterization, image sharpening & text injection
-│       ├── pdf-engine.ts         # Core PDF manipulation engine
-│       ├── pdf-tools-data.ts     # Tool registry metadata
-│       ├── security-service.ts   # Security audit logs and IP firewall engine
-│       └── types.ts              # TypeScript domain types
-├── .env.example                  # Environment configuration template
-├── package.json
-├── tailwind.config.ts
-└── tsconfig.json
-```
-
----
-
-## 🏁 Getting Started
-
-### 1. Prerequisites
-* **Node.js**: v18.17+ or v20+ recommended
-* **npm**: v9+ (or `pnpm` / `yarn`)
-* **MySQL Server**: (e.g. XAMPP MySQL, Docker MySQL, or remote MySQL instance)
-
-### 2. Clone and Install Dependencies
+### 1. Clone and Install Dependencies
 ```bash
 git clone https://github.com/your-username/EasyPDF.git
 cd EasyPDF
 npm install
 ```
 
-### 3. Setup Environment Variables
-Copy the `.env.example` file to `.env.local`:
+### 2. Setup Environment Variables
+Copy `.env.example` to `.env.local`:
 ```bash
 cp .env.example .env.local
 ```
 
-Configure your local MySQL credentials in `.env.local`:
-```env
-MYSQL_HOST=localhost
-MYSQL_PORT=3306
-MYSQL_USER=root
-MYSQL_PASSWORD=
-MYSQL_DATABASE=easypdf
-
-NEXT_PUBLIC_APP_URL=http://localhost:3000
-JWT_SECRET=your_jwt_secret_salt
-ADMIN_SECRET=your_admin_secret_salt
-
-ADMIN_EMAIL=mubinulhq@gmail.com
-ADMIN_PASSWORD=606505
-```
-
----
-
-## 🗄️ Database Setup & Migrations
-
-You can set up the database using either method:
-
-### Option A: 1-Click via Admin Dashboard (Recommended)
-1. Start the application: `npm run dev`
-2. Open [http://localhost:3000/admin](http://localhost:3000/admin) and log in.
-3. Navigate to **System Health & DB** tab.
-4. Click **"Run Auto-Migration / Seed"**. All 8 tables will be automatically created and populated.
-
-### Option B: Manual SQL Import
-Import [`database/schema.sql`](database/schema.sql) into your MySQL server via phpMyAdmin, MySQL Workbench, or CLI:
-```bash
-mysql -u root -p < database/schema.sql
-```
-
----
-
-## 💻 Running the Application
-
-### Development Server
+### 3. Run Development Server
 ```bash
 npm run dev
 ```
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-### Production Build
-```bash
-npm run build
-npm start
-```
-
 ---
 
-## 🔐 Default Administrator Login
+## 🔐 Administrator Credentials
 
 | Field | Value |
 | :--- | :--- |
