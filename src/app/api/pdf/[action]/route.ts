@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/db';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limiter';
+import { formatUserFriendlyError, logJobFailure } from '@/lib/error-handler';
 
 const SUPPORTED_ACTIONS = new Set([
   'merge',
@@ -99,12 +100,26 @@ export async function POST(
       },
     });
   } catch (error: any) {
+    const standardized = formatUserFriendlyError(error);
+    
+    // Log failure diagnostics for administrators
+    const fallbackJobId = `fail_${Date.now()}`;
+    await logJobFailure({
+      jobId: fallbackJobId,
+      errorCode: standardized.code,
+      errorMessage: standardized.userMessage,
+      stackTrace: {
+        raw: error?.message,
+        stack: error?.stack?.slice(0, 1000),
+      },
+    });
+
     return NextResponse.json(
       {
         success: false,
         error: {
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message || 'Failed to dispatch PDF processing job.',
+          code: standardized.code,
+          message: standardized.userMessage,
         },
       },
       { status: 500 }
