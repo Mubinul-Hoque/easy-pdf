@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/db';
+import { checkRateLimit, getClientIp } from '@/lib/rate-limiter';
 
 const SUPPORTED_ACTIONS = new Set([
   'merge',
@@ -16,6 +17,22 @@ export async function POST(
   { params }: { params: Promise<{ action: string }> }
 ) {
   try {
+    const clientIp = getClientIp(req.headers);
+    // Rate limit API actions to 60 requests per minute per IP
+    const rateCheck = checkRateLimit(`api_action:${clientIp}`, 60, 60);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'RATE_LIMIT_EXCEEDED',
+            message: `API rate limit exceeded. Please retry in ${rateCheck.resetSeconds} seconds.`,
+          },
+        },
+        { status: 429 }
+      );
+    }
+
     const { action } = await params;
     const cleanAction = (action || '').toLowerCase().trim();
 
