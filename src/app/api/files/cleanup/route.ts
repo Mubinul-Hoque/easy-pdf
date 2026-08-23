@@ -1,20 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/db';
+import { sanitizeStorageKey } from '@/lib/file-security';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const { jobId, fileIds = [], storageKeys = [] } = body;
 
-    if (!jobId && fileIds.length === 0 && storageKeys.length === 0) {
+    const safeJobId = typeof jobId === 'string' ? jobId.slice(0, 64) : '';
+    const safeFileIds = Array.isArray(fileIds)
+      ? fileIds.map((id: any) => String(id).slice(0, 64))
+      : [];
+    const safeStorageKeys = Array.isArray(storageKeys)
+      ? storageKeys.map((k: any) => sanitizeStorageKey(String(k)))
+      : [];
+
+    if (!safeJobId && safeFileIds.length === 0 && safeStorageKeys.length === 0) {
       return NextResponse.json({
         success: true,
         message: 'No files specified for cleanup.',
       });
     }
 
-    // Safely delete server files & results for the completed job
-    const result = await dbService.cleanupJobFiles(jobId, fileIds, storageKeys);
+    // Safely delete server files & results for the completed job within sandbox
+    const result = await dbService.cleanupJobFiles(safeJobId, safeFileIds, safeStorageKeys);
 
     return NextResponse.json({
       success: true,
