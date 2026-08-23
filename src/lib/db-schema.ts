@@ -30,7 +30,9 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_users_email (email),
-  INDEX idx_users_plan (plan_id)
+  INDEX idx_users_plan (plan_id),
+  INDEX idx_users_status_plan (status, plan_id),
+  INDEX idx_users_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS processing_jobs (
@@ -46,7 +48,10 @@ CREATE TABLE IF NOT EXISTS processing_jobs (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_jobs_status (status),
   INDEX idx_jobs_user (user_id),
-  INDEX idx_jobs_created (created_at)
+  INDEX idx_jobs_created (created_at),
+  INDEX idx_jobs_status_created (status, created_at),
+  INDEX idx_jobs_user_created (user_id, created_at),
+  INDEX idx_jobs_op_created (operation_type, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS processing_results (
@@ -61,7 +66,8 @@ CREATE TABLE IF NOT EXISTS processing_results (
   expires_at DATETIME NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_results_job (job_id),
-  INDEX idx_results_expires (expires_at)
+  INDEX idx_results_expires (expires_at),
+  INDEX idx_results_expires_created (expires_at, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS failed_jobs (
@@ -83,7 +89,8 @@ CREATE TABLE IF NOT EXISTS usage_limits (
   total_bytes_processed BIGINT NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uk_user_period (user_id, period_date)
+  UNIQUE KEY uk_user_period (user_id, period_date),
+  INDEX idx_usage_period (period_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS security_audit_logs (
@@ -95,7 +102,8 @@ CREATE TABLE IF NOT EXISTS security_audit_logs (
   details JSON,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_audit_event (event_type),
-  INDEX idx_audit_created (created_at)
+  INDEX idx_audit_created (created_at),
+  INDEX idx_audit_actor_created (actor_email, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS banned_ips (
@@ -103,7 +111,8 @@ CREATE TABLE IF NOT EXISTS banned_ips (
   ip_address VARCHAR(64) NOT NULL UNIQUE,
   reason VARCHAR(255) NOT NULL,
   banned_by VARCHAR(150) NOT NULL DEFAULT 'System Admin',
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_banned_ip (ip_address)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 `;
 
@@ -152,7 +161,7 @@ export async function runDatabaseMigrations(): Promise<{ success: boolean; messa
 
     return {
       success: true,
-      message: 'All 8 database tables verified and migrated successfully with default plans seeded.',
+      message: 'All 8 database tables verified and migrated successfully with optimized composite indexes and default plans seeded.',
       tablesCreated: tables,
     };
   } catch (err: any) {
