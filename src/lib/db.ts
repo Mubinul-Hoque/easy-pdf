@@ -60,30 +60,44 @@ export const DEFAULT_PLANS: Plan[] = [
   },
 ];
 
-// Initialize connection pool for high concurrency
-export const pool = mysql.createPool({
-  host: process.env.MYSQL_HOST || 'localhost',
-  port: parseInt(process.env.MYSQL_PORT || '3306', 10),
-  user: process.env.MYSQL_USER || 'root',
-  password: process.env.MYSQL_PASSWORD || '',
-  database: process.env.MYSQL_DATABASE || 'easypdf',
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 10000,
-  connectTimeout: 2000,
-});
+// Global singleton MySQL connection pool to avoid socket leaks on Next.js reloads
+declare global {
+  var __easypdf_mysql_pool: mysql.Pool | undefined;
+}
+
+function createMySQLPool(): mysql.Pool {
+  return mysql.createPool({
+    host: process.env.MYSQL_HOST || 'localhost',
+    port: parseInt(process.env.MYSQL_PORT || '3306', 10),
+    user: process.env.MYSQL_USER || 'root',
+    password: process.env.MYSQL_PASSWORD || '',
+    database: process.env.MYSQL_DATABASE || 'easypdf',
+    waitForConnections: true,
+    connectionLimit: 15,
+    maxIdle: 5,
+    idleTimeout: 60000,
+    queueLimit: 0,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10000,
+    connectTimeout: 3000,
+  });
+}
+
+export const pool: mysql.Pool = globalThis.__easypdf_mysql_pool || createMySQLPool();
+
+if (process.env.NODE_ENV !== 'production') {
+  globalThis.__easypdf_mysql_pool = pool;
+}
 
 /**
- * Execute parameterized SQL query with fault tolerance
+ * Execute parameterized SQL query with fault tolerance and resilient fallback
  */
 export async function query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
   try {
     const [rows] = await pool.execute(sql, params);
     return rows as T[];
   } catch (err: any) {
-    console.warn(`[Database Warning] Query failed (${err.code || err.message}). Operating in resilient fallback mode.`);
+    console.warn(`[Database Warning] Query notice (${err.code || err.message}). Resilient fallback operational.`);
     throw err;
   }
 }

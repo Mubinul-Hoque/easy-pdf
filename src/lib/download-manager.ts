@@ -59,6 +59,20 @@ export async function triggerBatchDownload(files: DownloadItem[]): Promise<boole
 }
 
 /**
+ * Automatically revokes object URLs after a safety delay to prevent browser memory leaks
+ */
+export function revokeBlobUrl(url: string, delayMs = 30000) {
+  if (typeof window === 'undefined' || !url || !url.startsWith('blob:')) return;
+  setTimeout(() => {
+    try {
+      URL.revokeObjectURL(url);
+    } catch {
+      // Ignore
+    }
+  }, delayMs);
+}
+
+/**
  * Notify server to safely delete source and converted files after download completion
  */
 export async function requestServerFileCleanup(params: {
@@ -88,3 +102,5 @@ export async function requestServerFileCleanup(params: {
     return false;
   }
 }
+
+

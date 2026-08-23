@@ -129,7 +129,11 @@ export const PDFPageOrganizer: React.FC<PDFPageOrganizerProps> = ({
               ctx.fillRect(0, 0, canvas.width, canvas.height);
               await page.render({ canvasContext: ctx, viewport }).promise;
 
-              const thumbUrl = canvas.toDataURL('image/jpeg', 0.85);
+              const thumbUrl = canvas.toDataURL('image/jpeg', 0.82);
+              // Clean canvas bitmap to release memory
+              canvas.width = 0;
+              canvas.height = 0;
+
               if (isMountedRef.current) {
                 setThumbnails((prev) => ({ ...prev, [i - 1]: thumbUrl }));
                 setRenderedThumbnailsCount((prev) => prev + 1);
@@ -139,6 +143,10 @@ export const PDFPageOrganizer: React.FC<PDFPageOrganizerProps> = ({
             console.warn(`Error rendering thumbnail for page ${i}:`, pageRenderErr);
           }
         }
+
+        try {
+          await doc.destroy();
+        } catch {}
 
         if (isMountedRef.current) {
           setLoadingThumbnails(false);

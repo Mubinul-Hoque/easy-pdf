@@ -208,7 +208,9 @@ export const PDFPreviewFrame: React.FC<PDFPreviewFrameProps> = ({
           const ctx = thumbCanvas.getContext('2d');
           if (ctx) {
             await page.render({ canvasContext: ctx, viewport: thumbViewport }).promise;
-            const dataUrl = thumbCanvas.toDataURL('image/jpeg', 0.8);
+            const dataUrl = thumbCanvas.toDataURL('image/jpeg', 0.78);
+            thumbCanvas.width = 0;
+            thumbCanvas.height = 0;
             if (!isCancelled) {
               setThumbnails((prev) =>
                 prev.map((item) =>
