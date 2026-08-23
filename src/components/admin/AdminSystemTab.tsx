@@ -28,7 +28,7 @@ export const AdminSystemTab: React.FC<AdminSystemTabProps> = ({ token, onNotific
   const [migratingDb, setMigratingDb] = useState(false);
   const [migrationResult, setMigrationResult] = useState<any>(null);
 
-  const fetchHealth = async () => {
+  const fetchHealth = React.useCallback(async () => {
     try {
       const res = await fetch('/api/admin/system', {
         method: 'POST',
@@ -45,9 +45,9 @@ export const AdminSystemTab: React.FC<AdminSystemTabProps> = ({ token, onNotific
     } catch (err) {
       console.error(err);
     }
-  };
+  }, [token]);
 
-  const testDatabase = async () => {
+  const testDatabase = React.useCallback(async () => {
     try {
       setTestingDb(true);
       const res = await fetch('/api/admin/system', {
@@ -65,7 +65,7 @@ export const AdminSystemTab: React.FC<AdminSystemTabProps> = ({ token, onNotific
     } finally {
       setTestingDb(false);
     }
-  };
+  }, [token]);
 
   const handleRunMigration = async () => {
     try {
@@ -95,7 +95,7 @@ export const AdminSystemTab: React.FC<AdminSystemTabProps> = ({ token, onNotific
   useEffect(() => {
     fetchHealth();
     testDatabase();
-  }, []);
+  }, [fetchHealth, testDatabase]);
 
   return (
     <div className="space-y-6">

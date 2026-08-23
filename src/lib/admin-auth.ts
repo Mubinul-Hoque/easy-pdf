@@ -17,7 +17,7 @@ let _adminJwtSecret: string | null = null;
 function getAdminJwtSecret(): string {
   if (_adminJwtSecret) return _adminJwtSecret;
 
-  const envSecret = process.env.ADMIN_SECRET;
+  const envSecret = process.env.ADMIN_SECRET || process.env.JWT_SECRET;
   if (envSecret && envSecret.length >= 32) {
     _adminJwtSecret = envSecret;
     return _adminJwtSecret;
@@ -25,16 +25,13 @@ function getAdminJwtSecret(): string {
 
   if (process.env.NODE_ENV === 'production') {
     throw new Error(
-      '[EasyPDF Security] ADMIN_SECRET environment variable is not set or is too short (minimum 32 chars). ' +
+      '[EasyPDF Security] ADMIN_SECRET or JWT_SECRET environment variable is not set or is too short (minimum 32 chars). ' +
         'Set a strong random secret before starting the production server.'
     );
   }
 
-  // Development: warn and use an ephemeral per-process random secret
-  _adminJwtSecret = crypto.randomBytes(32).toString('hex');
-  console.warn(
-    '[EasyPDF Dev] ADMIN_SECRET not set. Using ephemeral dev secret. Set ADMIN_SECRET in .env.local for persistence.'
-  );
+  // Development: use a stable deterministic secret so all route handlers and hot-reloads share the same key
+  _adminJwtSecret = 'easypdf_dev_fixed_secret_key_session_signing_minimum_32_chars_2026';
   return _adminJwtSecret;
 }
 

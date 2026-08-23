@@ -24,7 +24,7 @@ export const AdminToolsTab: React.FC<AdminToolsTabProps> = ({ token }) => {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [bannerSaved, setBannerSaved] = useState(false);
 
-  const fetchConfigs = async () => {
+  const fetchConfigs = React.useCallback(async () => {
     try {
       setLoading(true);
       const res = await fetch('/api/admin/tools', {
@@ -32,7 +32,7 @@ export const AdminToolsTab: React.FC<AdminToolsTabProps> = ({ token }) => {
       });
       const data = await res.json();
       if (data.success) {
-        setConfigs(data.configs);
+        setConfigs(data.configs || []);
         setBanner(data.banner || '');
       }
     } catch (err) {
@@ -40,11 +40,11 @@ export const AdminToolsTab: React.FC<AdminToolsTabProps> = ({ token }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
     fetchConfigs();
-  }, []);
+  }, [fetchConfigs]);
 
   const handleToggleTool = async (toolId: string, currentEnabled: boolean) => {
     try {

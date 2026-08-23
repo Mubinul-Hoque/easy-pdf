@@ -29,7 +29,7 @@ export const AdminSecurityTab: React.FC<AdminSecurityTabProps> = ({ token, onNot
   const [newReason, setNewReason] = useState('');
   const [addingBan, setAddingBan] = useState(false);
 
-  const fetchSecurityData = async () => {
+  const fetchSecurityData = React.useCallback(async () => {
     try {
       setLoading(true);
       const res = await fetch('/api/admin/security', {
@@ -45,11 +45,11 @@ export const AdminSecurityTab: React.FC<AdminSecurityTabProps> = ({ token, onNot
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
     fetchSecurityData();
-  }, []);
+  }, [fetchSecurityData]);
 
   const handleBanIp = async (e: React.FormEvent) => {
     e.preventDefault();

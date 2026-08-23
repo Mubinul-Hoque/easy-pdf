@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
     }
 
     const stats = await adminService.getDashboardStats();
-    const recentJobs = await adminService.getRecentJobs(15);
+    const { jobs: recentJobs } = await adminService.getRecentJobs(15);
     const banner = await adminService.getMaintenanceBanner();
 
     return NextResponse.json({ success: true, stats, recentJobs, banner });

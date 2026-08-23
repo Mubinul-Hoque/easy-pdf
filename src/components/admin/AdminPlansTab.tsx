@@ -23,7 +23,7 @@ export const AdminPlansTab: React.FC<AdminPlansTabProps> = ({ token, onNotificat
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
 
-  const fetchPlans = async () => {
+  const fetchPlans = React.useCallback(async () => {
     try {
       setLoading(true);
       const res = await fetch('/api/admin/plans', {
@@ -31,18 +31,18 @@ export const AdminPlansTab: React.FC<AdminPlansTabProps> = ({ token, onNotificat
       });
       const data = await res.json();
       if (data.success) {
-        setPlans(data.plans);
+        setPlans(data.plans || []);
       }
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
     fetchPlans();
-  }, []);
+  }, [fetchPlans]);
 
   const handleChange = (planId: string, field: keyof Plan, value: any) => {
     setPlans((prev) =>
