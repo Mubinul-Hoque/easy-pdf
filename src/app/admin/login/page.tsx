@@ -147,11 +147,8 @@ export default function AdminLoginPage() {
               className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition-colors"
             >
               <KeyRound className="h-3.5 w-3.5" />
-              Click to autofill credentials
+              Auto-fill authorized credentials
             </button>
-            <p className="text-[10px] text-slate-500">
-              mubinulhq@gmail.com • 606505
-            </p>
           </div>
         </div>
       </div>
