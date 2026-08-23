@@ -15,7 +15,7 @@ export default function GlobalError({
         <div className="max-w-md p-8 rounded-3xl bg-white border border-slate-200 shadow-xl">
           <h2 className="text-xl font-bold text-slate-900 mb-2">Application Error</h2>
           <p className="text-xs text-slate-500 mb-6">
-            {error?.message || 'A critical error occurred. Please reload the page.'}
+            A critical application error occurred. Please reload the page. If the issue persists, contact support.
           </p>
           <button
             onClick={() => reset()}

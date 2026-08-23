@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminService } from '@/lib/admin-service';
 import { parseAdminSessionToken, ADMIN_CONFIG } from '@/lib/admin-auth';
 import { pool, query } from '@/lib/db';
+import { safeApiError, extractBearerToken } from '@/lib/api-security';
 
 export async function POST(req: NextRequest) {
   try {
-    const token = req.headers.get('authorization')?.replace('Bearer ', '') || req.cookies.get(ADMIN_CONFIG.sessionCookieName)?.value;
-    if (!parseAdminSessionToken(token || '')) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    const token = extractBearerToken(req.headers, req.cookies, ADMIN_CONFIG.sessionCookieName);
+    if (!parseAdminSessionToken(token)) {
+      return NextResponse.json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }, { status: 401 });
     }
 
     const body = await req.json();
@@ -33,11 +34,11 @@ export async function POST(req: NextRequest) {
           latencyMs: latency,
           message: `Database connection pool operational (${latency}ms roundtrip).`,
         });
-      } catch (err: any) {
+      } catch {
         return NextResponse.json({
           success: true,
           status: 'OFFLINE_FALLBACK',
-          message: `Database is offline or unreachable (${err.message}). Application is running safely in resilient fallback mode.`,
+          message: 'Database is offline or unreachable. Application is running in resilient fallback mode.',
         });
       }
     }
@@ -68,7 +69,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ success: false, error: 'Unknown system action' }, { status: 400 });
-  } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  } catch (err) {
+    return NextResponse.json(safeApiError(err, 'System action failed.'), { status: 500 });
   }
 }

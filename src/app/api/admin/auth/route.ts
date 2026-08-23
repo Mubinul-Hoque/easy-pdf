@@ -7,6 +7,7 @@ import {
 } from '@/lib/admin-auth';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limiter';
 import { securityService } from '@/lib/security-service';
+import { safeApiError } from '@/lib/api-security';
 
 export async function POST(req: NextRequest) {
   try {
@@ -97,7 +98,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ success: false, error: 'Unknown action requested' }, { status: 400 });
-  } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  } catch (err) {
+    return NextResponse.json(safeApiError(err, 'Authentication service error.'), { status: 500 });
   }
 }

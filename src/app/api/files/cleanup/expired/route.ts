@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/db';
+import { safeApiError } from '@/lib/api-security';
 
 export async function GET(req: NextRequest) {
   return handleExpiredCleanup(req);
@@ -18,16 +19,7 @@ async function handleExpiredCleanup(req: NextRequest) {
       message: 'Expired and abandoned storage files successfully cleaned up.',
       data: result,
     });
-  } catch (err: any) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: {
-          code: 'BACKUP_CLEANUP_ERROR',
-          message: err.message || 'Failed to run backup expired cleanup routine.',
-        },
-      },
-      { status: 500 }
-    );
+  } catch (err) {
+    return NextResponse.json(safeApiError(err, 'Failed to run expired cleanup routine.', 'BACKUP_CLEANUP_ERROR'), { status: 500 });
   }
 }

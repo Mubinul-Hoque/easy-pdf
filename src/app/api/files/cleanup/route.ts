@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/db';
 import { sanitizeStorageKey } from '@/lib/file-security';
+import { safeApiError } from '@/lib/api-security';
 
 export async function POST(req: NextRequest) {
   try {
@@ -30,16 +31,7 @@ export async function POST(req: NextRequest) {
       message: 'Source and generated files successfully purged from server storage.',
       data: result,
     });
-  } catch (err: any) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: {
-          code: 'CLEANUP_ERROR',
-          message: err.message || 'Failed to complete server storage cleanup.',
-        },
-      },
-      { status: 500 }
-    );
+  } catch (err) {
+    return NextResponse.json(safeApiError(err, 'Failed to complete server storage cleanup.', 'CLEANUP_ERROR'), { status: 500 });
   }
 }

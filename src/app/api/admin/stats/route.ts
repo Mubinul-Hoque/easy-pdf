@@ -1,29 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminService } from '@/lib/admin-service';
 import { parseAdminSessionToken, ADMIN_CONFIG } from '@/lib/admin-auth';
+import { safeApiError, extractBearerToken } from '@/lib/api-security';
 
 export async function GET(req: NextRequest) {
   try {
-    const authHeader = req.headers.get('authorization')?.replace('Bearer ', '');
-    const cookieToken = req.cookies.get(ADMIN_CONFIG.sessionCookieName)?.value;
-    const token = authHeader || cookieToken;
-
-    const admin = parseAdminSessionToken(token || '');
-    if (!admin) {
-      return NextResponse.json({ success: false, error: 'Unauthorized admin access' }, { status: 401 });
+    const token = extractBearerToken(req.headers, req.cookies, ADMIN_CONFIG.sessionCookieName);
+    if (!parseAdminSessionToken(token)) {
+      return NextResponse.json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }, { status: 401 });
     }
 
     const stats = await adminService.getDashboardStats();
     const recentJobs = await adminService.getRecentJobs(15);
     const banner = await adminService.getMaintenanceBanner();
 
-    return NextResponse.json({
-      success: true,
-      stats,
-      recentJobs,
-      banner,
-    });
-  } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return NextResponse.json({ success: true, stats, recentJobs, banner });
+  } catch (err) {
+    return NextResponse.json(safeApiError(err, 'Failed to load dashboard statistics.'), { status: 500 });
   }
 }

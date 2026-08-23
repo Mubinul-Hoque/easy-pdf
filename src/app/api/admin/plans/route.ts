@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { dbService, Plan, DEFAULT_PLANS, query } from '@/lib/db';
+import { Plan, DEFAULT_PLANS, query } from '@/lib/db';
 import { parseAdminSessionToken, ADMIN_CONFIG } from '@/lib/admin-auth';
+import { safeApiError, extractBearerToken } from '@/lib/api-security';
 
 let RUNTIME_PLANS: Plan[] = [...DEFAULT_PLANS];
 
 export async function GET(req: NextRequest) {
   try {
-    const token = req.headers.get('authorization')?.replace('Bearer ', '') || req.cookies.get(ADMIN_CONFIG.sessionCookieName)?.value;
-    if (!parseAdminSessionToken(token || '')) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    const token = extractBearerToken(req.headers, req.cookies, ADMIN_CONFIG.sessionCookieName);
+    if (!parseAdminSessionToken(token)) {
+      return NextResponse.json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }, { status: 401 });
     }
 
     try {
@@ -21,16 +22,16 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true, plans: RUNTIME_PLANS });
-  } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  } catch (err) {
+    return NextResponse.json(safeApiError(err, 'Failed to load plans.'), { status: 500 });
   }
 }
 
 export async function PATCH(req: NextRequest) {
   try {
-    const token = req.headers.get('authorization')?.replace('Bearer ', '') || req.cookies.get(ADMIN_CONFIG.sessionCookieName)?.value;
-    if (!parseAdminSessionToken(token || '')) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    const token = extractBearerToken(req.headers, req.cookies, ADMIN_CONFIG.sessionCookieName);
+    if (!parseAdminSessionToken(token)) {
+      return NextResponse.json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }, { status: 401 });
     }
 
     const body = await req.json().catch(() => ({}));
@@ -116,7 +117,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true, plan: RUNTIME_PLANS[idx] || sanitizedUpdates });
-  } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  } catch (err) {
+    return NextResponse.json(safeApiError(err, 'Failed to update plan.'), { status: 500 });
   }
 }

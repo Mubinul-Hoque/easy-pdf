@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminService } from '@/lib/admin-service';
 import { parseAdminSessionToken, ADMIN_CONFIG } from '@/lib/admin-auth';
+import { safeApiError, extractBearerToken } from '@/lib/api-security';
 
 export async function GET(req: NextRequest) {
   try {
-    const token = req.headers.get('authorization')?.replace('Bearer ', '') || req.cookies.get(ADMIN_CONFIG.sessionCookieName)?.value;
-    if (!parseAdminSessionToken(token || '')) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    const token = extractBearerToken(req.headers, req.cookies, ADMIN_CONFIG.sessionCookieName);
+    if (!parseAdminSessionToken(token)) {
+      return NextResponse.json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }, { status: 401 });
     }
 
     const { searchParams } = new URL(req.url);
@@ -26,26 +27,26 @@ export async function GET(req: NextRequest) {
         totalPages: result.totalPages,
       },
     });
-  } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  } catch (err) {
+    return NextResponse.json(safeApiError(err, 'Failed to load users.'), { status: 500 });
   }
 }
 
 export async function PATCH(req: NextRequest) {
   try {
-    const token = req.headers.get('authorization')?.replace('Bearer ', '') || req.cookies.get(ADMIN_CONFIG.sessionCookieName)?.value;
-    if (!parseAdminSessionToken(token || '')) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    const token = extractBearerToken(req.headers, req.cookies, ADMIN_CONFIG.sessionCookieName);
+    if (!parseAdminSessionToken(token)) {
+      return NextResponse.json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }, { status: 401 });
     }
 
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const { userId, updates } = body;
 
-    if (!userId || typeof userId !== 'string' || !updates || typeof updates !== 'object') {
-      return NextResponse.json({ success: false, error: 'Invalid userId or updates format' }, { status: 400 });
+    if (!userId || typeof userId !== 'string' || userId.length > 64 || !updates || typeof updates !== 'object') {
+      return NextResponse.json({ success: false, error: { code: 'INVALID_INPUT', message: 'Invalid userId or updates format' } }, { status: 400 });
     }
 
-    // Input whitelist validation
+    // Strict allowlist — no arbitrary fields accepted
     const allowedUpdates: any = {};
     if (updates.plan && ['free', 'pro', 'business'].includes(updates.plan)) {
       allowedUpdates.plan = updates.plan;
@@ -55,12 +56,12 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (Object.keys(allowedUpdates).length === 0) {
-      return NextResponse.json({ success: false, error: 'No valid update fields provided' }, { status: 400 });
+      return NextResponse.json({ success: false, error: { code: 'INVALID_INPUT', message: 'No valid update fields provided' } }, { status: 400 });
     }
 
     const updated = await adminService.updateUser(userId, allowedUpdates);
     return NextResponse.json({ success: true, user: updated });
-  } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  } catch (err) {
+    return NextResponse.json(safeApiError(err, 'Failed to update user.'), { status: 500 });
   }
 }
