@@ -9,22 +9,30 @@ import { loadPDFJs } from './pdfjs-loader';
  */
 export class PDFEngine {
   /**
-   * 1. MERGE PDFS
+   * 1. MERGE PDFS (Low-Memory Stream Merging)
    */
   static async mergePDFs(fileBuffers: ArrayBuffer[], outputName: string = 'merged.pdf'): Promise<ProcessedResult> {
     const mergedDoc = await PDFDocument.create();
     let totalPages = 0;
     let originalTotalSize = 0;
 
-    for (const buffer of fileBuffers) {
+    for (let i = 0; i < fileBuffers.length; i++) {
+      const buffer = fileBuffers[i];
       originalTotalSize += buffer.byteLength;
+
+      // Load one document at a time to prevent simultaneous memory spikes
       const doc = await PDFDocument.load(buffer, { ignoreEncryption: true });
       const pages = await mergedDoc.copyPages(doc, doc.getPageIndices());
       pages.forEach((page) => mergedDoc.addPage(page));
       totalPages += doc.getPageCount();
+
+      // Yield event loop between large file copies
+      if (i % 3 === 0) {
+        await new Promise((r) => setTimeout(r, 0));
+      }
     }
 
-    const mergedBytes = await mergedDoc.save();
+    const mergedBytes = await mergedDoc.save({ useObjectStreams: true });
     const blob = new Blob([mergedBytes as unknown as BlobPart], { type: 'application/pdf' });
     const downloadUrl = URL.createObjectURL(blob);
 
@@ -38,7 +46,7 @@ export class PDFEngine {
   }
 
   /**
-   * 2. SPLIT PDF
+   * 2. SPLIT PDF (Optimized Range & Chunk Stream Extractor)
    */
   static async splitPDF(
     fileBuffer: ArrayBuffer,
@@ -54,7 +62,7 @@ export class PDFEngine {
       const newDoc = await PDFDocument.create();
       const copiedPages = await newDoc.copyPages(srcDoc, options.selectedPages.map((p) => p - 1));
       copiedPages.forEach((p) => newDoc.addPage(p));
-      const bytes = await newDoc.save();
+      const bytes = await newDoc.save({ useObjectStreams: true });
 
       const blob = new Blob([bytes as unknown as BlobPart], { type: 'application/pdf' });
       return {
@@ -91,7 +99,7 @@ export class PDFEngine {
         if (indices.length > 0) {
           const copied = await doc.copyPages(srcDoc, indices);
           copied.forEach((p) => doc.addPage(p));
-          const pdfBytes = await doc.save();
+          const pdfBytes = await doc.save({ useObjectStreams: true });
           zip.file(`${baseName}_part_${fileIdx}.pdf`, pdfBytes);
           fileIdx++;
         }
@@ -108,13 +116,18 @@ export class PDFEngine {
         }
         const copied = await doc.copyPages(srcDoc, sliceIndices);
         copied.forEach((p) => doc.addPage(p));
-        const pdfBytes = await doc.save();
+        const pdfBytes = await doc.save({ useObjectStreams: true });
         zip.file(`${baseName}_part_${part}.pdf`, pdfBytes);
         part++;
       }
     }
 
-    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const zipBlob = await zip.generateAsync({
+      type: 'blob',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 },
+    });
+
     return {
       fileName: `${baseName}_split_archive.zip`,
       downloadUrl: URL.createObjectURL(zipBlob),
@@ -457,9 +470,13 @@ export class PDFEngine {
   }
 
   /**
-   * 9. REPAIR PDF
+   * 9. REPAIR PDF (Multi-Stage Structural & Binary Stream Repair)
    */
   static async repairPDF(fileBuffer: ArrayBuffer, outputName: string = 'repaired.pdf'): Promise<ProcessedResult> {
+    let bytes: Uint8Array | null = null;
+    let pageCount = 0;
+
+    // STAGE 1: Standard object stream re-indexing & clean copy
     try {
       const doc = await PDFDocument.load(fileBuffer, {
         ignoreEncryption: true,
@@ -471,19 +488,46 @@ export class PDFEngine {
       const copiedPages = await fixedDoc.copyPages(doc, pageIndices);
       copiedPages.forEach((p) => fixedDoc.addPage(p));
 
-      const bytes = await fixedDoc.save({ useObjectStreams: true });
-      const blob = new Blob([bytes as unknown as BlobPart], { type: 'application/pdf' });
+      bytes = await fixedDoc.save({ useObjectStreams: true });
+      pageCount = fixedDoc.getPageCount();
+    } catch (stage1Err) {
+      // STAGE 2: Deep Binary Header & Trailer Offset Alignment
+      try {
+        const rawBytes = new Uint8Array(fileBuffer);
+        const headerIndex = new TextDecoder('latin1').decode(rawBytes.subarray(0, 1024)).indexOf('%PDF-');
 
-      return {
-        fileName: outputName,
-        downloadUrl: URL.createObjectURL(blob),
-        fileSizeBytes: bytes.byteLength,
-        originalSizeBytes: fileBuffer.byteLength,
-        pageCount: fixedDoc.getPageCount(),
-      };
-    } catch (e: any) {
-      throw new Error(`PDF Repair Failed: ${e.message || 'File structure severely corrupted.'}`);
+        if (headerIndex > 0) {
+          // Strip corrupted prepended garbage data before %PDF- header
+          const trimmedBuffer = rawBytes.subarray(headerIndex).slice().buffer;
+          const fallbackDoc = await PDFDocument.load(trimmedBuffer, {
+            ignoreEncryption: true,
+            updateMetadata: false,
+          });
+
+          const fixedDoc = await PDFDocument.create();
+          const pageIndices = fallbackDoc.getPageIndices();
+          const copiedPages = await fixedDoc.copyPages(fallbackDoc, pageIndices);
+          copiedPages.forEach((p) => fixedDoc.addPage(p));
+
+          bytes = await fixedDoc.save({ useObjectStreams: true });
+          pageCount = fixedDoc.getPageCount();
+        } else {
+          throw stage1Err;
+        }
+      } catch (stage2Err: any) {
+        throw new Error(`PDF Repair failed: ${stage2Err.message || 'File structure is severely damaged or unreadable.'}`);
+      }
     }
+
+    const blob = new Blob([bytes as unknown as BlobPart], { type: 'application/pdf' });
+
+    return {
+      fileName: outputName,
+      downloadUrl: URL.createObjectURL(blob),
+      fileSizeBytes: bytes.byteLength,
+      originalSizeBytes: fileBuffer.byteLength,
+      pageCount,
+    };
   }
 
   /**

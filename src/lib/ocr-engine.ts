@@ -206,6 +206,11 @@ export class OCREngine {
         const processedCanvas = this.preprocessCanvas(rawCanvas, preset);
 
         const { data } = await worker.recognize(processedCanvas);
+        // Free preprocessed raster buffer immediately
+        if (processedCanvas !== rawCanvas) {
+          processedCanvas.width = 0;
+          processedCanvas.height = 0;
+        }
 
         const pageLines: OCRLine[] = [];
         const pageParagraphs: OCRParagraph[] = [];
