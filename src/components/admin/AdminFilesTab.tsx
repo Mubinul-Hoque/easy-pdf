@@ -12,7 +12,7 @@ import {
   FileText,
   Lock,
 } from 'lucide-react';
-import { AdminStats } from '@/lib/admin-service';
+import type { AdminStats } from '@/lib/admin-service';
 
 interface AdminFilesTabProps {
   stats: AdminStats | null;

@@ -41,10 +41,14 @@ export const AdminNavbar: React.FC<AdminNavbarProps> = ({
         return { title: 'Storage & Zero-Retention', desc: 'Monitor temporary storage, retention TTL, and run storage purges.' };
       case 'tools':
         return { title: 'PDF Tool Switchboard', desc: 'Toggle tools on/off, customize upload limits, and broadcast banners.' };
+      case 'settings':
+        return { title: 'Branding & General Settings', desc: 'Customize app logo, favicon, colors, site title, and contact metadata.' };
       case 'security':
         return { title: 'Security & IP Firewall', desc: 'Inspect administrative audit events and manage blocked IPs.' };
       case 'system':
         return { title: 'System Diagnostics & DB Schema', desc: 'Inspect database pools, memory health, and run migrations.' };
+      default:
+        return { title: 'Admin Dashboard', desc: 'Manage and configure EasyPDF platform settings.' };
     }
   };
 

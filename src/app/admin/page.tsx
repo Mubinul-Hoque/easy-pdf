@@ -10,9 +10,10 @@ import { AdminPlansTab } from '@/components/admin/AdminPlansTab';
 import { AdminFilesTab } from '@/components/admin/AdminFilesTab';
 import { AdminToolsTab } from '@/components/admin/AdminToolsTab';
 import { AdminSecurityTab } from '@/components/admin/AdminSecurityTab';
+import { AdminSettingsTab } from '@/components/admin/AdminSettingsTab';
 import { AdminSystemTab } from '@/components/admin/AdminSystemTab';
-import { AdminStats, AdminJobRecord } from '@/lib/admin-service';
-import { AdminUser } from '@/lib/admin-auth';
+import type { AdminStats, AdminJobRecord } from '@/lib/admin-service';
+import type { AdminUser } from '@/lib/admin-auth';
 import { Activity, ShieldAlert, CheckCircle2 } from 'lucide-react';
 
 export default function AdminDashboardPage() {
@@ -198,6 +199,10 @@ export default function AdminDashboardPage() {
           )}
 
           {currentTab === 'tools' && <AdminToolsTab token={token} />}
+
+          {currentTab === 'settings' && (
+            <AdminSettingsTab token={token} onNotification={showNotification} />
+          )}
 
           {currentTab === 'security' && (
             <AdminSecurityTab token={token} onNotification={showNotification} />

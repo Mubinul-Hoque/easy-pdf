@@ -13,9 +13,11 @@ import {
   AlertCircle,
   KeyRound,
 } from 'lucide-react';
+import { useSettings } from '@/context/SettingsContext';
 
 export default function AdminLoginPage() {
   const router = useRouter();
+  const { settings } = useSettings();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -62,9 +64,18 @@ export default function AdminLoginPage() {
         {/* Brand Logo */}
         <div className="flex justify-center">
           <Link href="/" className="flex items-center gap-2.5 group">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 group-hover:scale-105 transition-transform duration-200">
-              <Layers className="h-6 w-6" />
-            </div>
+            {settings.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={settings.logoUrl}
+                alt={settings.appName || 'Logo'}
+                className="h-12 max-w-[220px] object-contain group-hover:scale-105 transition-transform duration-200"
+              />
+            ) : (
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 group-hover:scale-105 transition-transform duration-200">
+                <Layers className="h-6 w-6" />
+              </div>
+            )}
           </Link>
         </div>
 

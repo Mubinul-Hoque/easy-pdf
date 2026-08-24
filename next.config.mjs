@@ -1,9 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'standalone',
+  ...(process.env.NEXT_OUTPUT_STANDALONE === 'true' ? { output: 'standalone' } : {}),
+  outputFileTracingRoot: process.cwd(),
   reactStrictMode: true,
   poweredByHeader: false,
   compress: true,
+  devIndicators: false,
   serverExternalPackages: ['mysql2'],
   async headers() {
     return [
@@ -28,15 +30,29 @@ const nextConfig = {
           },
         ],
       },
-      {
-        source: '/_next/static/:path*',
-        headers: [
-          {
-            key: 'Cache-Control',
-            value: 'public, max-age=31536000, immutable',
-          },
-        ],
-      },
+      ...(process.env.NODE_ENV === 'production'
+        ? [
+            {
+              source: '/_next/static/:path*',
+              headers: [
+                {
+                  key: 'Cache-Control',
+                  value: 'public, max-age=31536000, immutable',
+                },
+              ],
+            },
+          ]
+        : [
+            {
+              source: '/_next/static/:path*',
+              headers: [
+                {
+                  key: 'Cache-Control',
+                  value: 'no-cache, no-store, must-revalidate',
+                },
+              ],
+            },
+          ]),
       {
         source: '/api/plans',
         headers: [
@@ -57,15 +73,24 @@ const nextConfig = {
       },
     ];
   },
-  webpack: (config, { isServer }) => {
-    config.resolve.alias.canvas = false;
+  webpack: (config, { dev, isServer }) => {
+    if (dev) {
+      config.cache = {
+        type: 'memory',
+      };
+    }
+
+    config.resolve = config.resolve || {};
+    config.resolve.alias = {
+      ...(config.resolve.alias || {}),
+      canvas: false,
+    };
     if (!isServer) {
       config.resolve.fallback = {
-        ...config.resolve.fallback,
+        ...(config.resolve.fallback || {}),
         canvas: false,
         fs: false,
         path: false,
-        crypto: false,
       };
     }
     return config;

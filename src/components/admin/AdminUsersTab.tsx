@@ -15,7 +15,7 @@ import {
   ChevronRight,
   Loader2,
 } from 'lucide-react';
-import { AdminUserRecord } from '@/lib/admin-service';
+import type { AdminUserRecord } from '@/lib/admin-service';
 import { formatBytes } from '@/lib/format-utils';
 
 interface AdminUsersTabProps {

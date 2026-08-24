@@ -18,7 +18,8 @@ SET FOREIGN_KEY_CHECKS = 0;
 DROP TABLE IF EXISTS `users`;
 CREATE TABLE `users` (
     `id` VARCHAR(64) NOT NULL,
-    `email` VARCHAR(191) NOT NULL UNIQUE,
+    `email` VARCHAR(191) DEFAULT NULL UNIQUE,
+    `phone` VARCHAR(32) DEFAULT NULL UNIQUE,
     `password_hash` VARCHAR(255) DEFAULT NULL,
     `full_name` VARCHAR(150) DEFAULT NULL,
     `role` ENUM('USER', 'ADMIN') NOT NULL DEFAULT 'USER',
@@ -30,13 +31,32 @@ CREATE TABLE `users` (
     `avatar_url` VARCHAR(500) DEFAULT NULL,
     `api_key` VARCHAR(64) DEFAULT NULL UNIQUE,
     `email_verified_at` DATETIME DEFAULT NULL,
+    `phone_verified_at` DATETIME DEFAULT NULL,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     INDEX `idx_users_email` (`email`),
+    INDEX `idx_users_phone` (`phone`),
     INDEX `idx_users_plan` (`plan_id`),
     INDEX `idx_users_status_plan` (`status`, `plan_id`),
     INDEX `idx_users_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------------------------------
+-- 1.1 OTP VERIFICATIONS TABLE
+-- -----------------------------------------------------------------------------
+DROP TABLE IF EXISTS `otp_verifications`;
+CREATE TABLE `otp_verifications` (
+    `id` VARCHAR(64) NOT NULL,
+    `identifier` VARCHAR(191) NOT NULL, -- Email address or phone number
+    `otp_code` VARCHAR(10) NOT NULL,    -- 4-digit OTP code
+    `type` ENUM('register', 'login', 'reset_password') NOT NULL DEFAULT 'register',
+    `attempts` INT NOT NULL DEFAULT 0,
+    `expires_at` DATETIME NOT NULL,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    INDEX `idx_otp_identifier` (`identifier`),
+    INDEX `idx_otp_expires` (`expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------------------------------

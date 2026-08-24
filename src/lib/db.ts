@@ -170,10 +170,85 @@ export const dbService = {
   // 2. Register or get user by email
   async getUserByEmail(email: string) {
     try {
-      const users = await query(`SELECT * FROM users WHERE email = ? LIMIT 1`, [email]);
+      const users = await query(`SELECT * FROM users WHERE email = ? LIMIT 1`, [email.toLowerCase().trim()]);
       return users.length > 0 ? users[0] : null;
     } catch {
       return null;
+    }
+  },
+
+  // 2.1 Get user by phone number
+  async getUserByPhone(phone: string) {
+    try {
+      const cleanPhone = phone.trim();
+      const users = await query(`SELECT * FROM users WHERE phone = ? LIMIT 1`, [cleanPhone]);
+      return users.length > 0 ? users[0] : null;
+    } catch {
+      return null;
+    }
+  },
+
+  // 2.2 Get user by identifier (either email or phone)
+  async getUserByIdentifier(identifier: string) {
+    try {
+      const clean = identifier.trim();
+      const isEmail = clean.includes('@');
+      if (isEmail) {
+        return await this.getUserByEmail(clean);
+      } else {
+        return await this.getUserByPhone(clean);
+      }
+    } catch {
+      return null;
+    }
+  },
+
+  // 2.3 Get user by ID
+  async getUserById(id: string) {
+    try {
+      const users = await query(`SELECT * FROM users WHERE id = ? LIMIT 1`, [id]);
+      return users.length > 0 ? users[0] : null;
+    } catch {
+      return null;
+    }
+  },
+
+  // 2.4 Create new registered user
+  async createUser(user: {
+    id: string;
+    email?: string | null;
+    phone?: string | null;
+    fullName: string;
+    role?: 'USER' | 'ADMIN';
+    tier?: string;
+    planId?: string;
+    passwordHash?: string | null;
+    emailVerified?: boolean;
+    phoneVerified?: boolean;
+  }) {
+    try {
+      const emailVerifiedAt = user.emailVerified ? new Date() : null;
+      const phoneVerifiedAt = user.phoneVerified ? new Date() : null;
+      await query(
+        `INSERT INTO users (id, email, phone, full_name, role, tier, plan_id, password_hash, email_verified_at, phone_verified_at, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+        [
+          user.id,
+          user.email ? user.email.toLowerCase().trim() : null,
+          user.phone ? user.phone.trim() : null,
+          user.fullName.trim(),
+          user.role || 'USER',
+          user.tier || 'FREE',
+          user.planId || 'plan_free_001',
+          user.passwordHash || null,
+          emailVerifiedAt,
+          phoneVerifiedAt,
+        ]
+      );
+      return await this.getUserById(user.id);
+    } catch (err) {
+      console.warn('Create user notice:', err);
+      throw err;
     }
   },
 

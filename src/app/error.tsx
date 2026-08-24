@@ -26,8 +26,18 @@ export default function Error({
       </p>
       <div className="flex flex-wrap items-center justify-center gap-3">
         <button
-          onClick={() => reset()}
-          className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-xs font-bold text-white shadow-md hover:bg-indigo-700 transition-colors"
+          onClick={() => {
+            if (typeof reset === 'function') {
+              try {
+                reset();
+                return;
+              } catch {}
+            }
+            if (typeof window !== 'undefined') {
+              window.location.reload();
+            }
+          }}
+          className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-xs font-bold text-white shadow-md hover:bg-indigo-700 transition-colors cursor-pointer"
         >
           <RefreshCw className="h-4 w-4" />
           Try Again

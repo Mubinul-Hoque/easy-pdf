@@ -11,7 +11,7 @@ import {
   Layers,
   Sparkles,
 } from 'lucide-react';
-import { AdminToolConfig } from '@/lib/admin-service';
+import type { AdminToolConfig } from '@/lib/admin-service';
 
 interface AdminToolsTabProps {
   token?: string;

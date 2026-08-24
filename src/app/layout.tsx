@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { Navbar } from '@/components/Navbar';
-import { Footer } from '@/components/Footer';
+import { FooterWrapper } from '@/components/FooterWrapper';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -73,10 +73,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={inter.variable}>
-      <body className={`${inter.className} min-h-screen flex flex-col bg-[#f8fafc] text-slate-900 antialiased selection:bg-indigo-500/20 selection:text-indigo-900`}>
+      <body
+        suppressHydrationWarning
+        className={`${inter.className} min-h-screen flex flex-col bg-[#f8fafc] text-slate-900 antialiased selection:bg-indigo-500/20 selection:text-indigo-900`}
+      >
         <Navbar />
         <main className="flex-1">{children}</main>
-        <Footer />
+        <FooterWrapper />
       </body>
     </html>
   );

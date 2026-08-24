@@ -20,19 +20,35 @@ CREATE TABLE IF NOT EXISTS plans (
 
 CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(64) PRIMARY KEY,
-  email VARCHAR(191) NOT NULL UNIQUE,
+  email VARCHAR(191) DEFAULT NULL UNIQUE,
+  phone VARCHAR(32) DEFAULT NULL UNIQUE,
   password_hash VARCHAR(255) DEFAULT NULL,
   full_name VARCHAR(150) NOT NULL,
   plan_id VARCHAR(64) NOT NULL DEFAULT 'plan_free_001',
   status ENUM('active', 'suspended', 'pending') NOT NULL DEFAULT 'active',
   total_operations INT NOT NULL DEFAULT 0,
   storage_used_bytes BIGINT NOT NULL DEFAULT 0,
+  email_verified_at DATETIME DEFAULT NULL,
+  phone_verified_at DATETIME DEFAULT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_users_email (email),
+  INDEX idx_users_phone (phone),
   INDEX idx_users_plan (plan_id),
   INDEX idx_users_status_plan (status, plan_id),
   INDEX idx_users_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS otp_verifications (
+  id VARCHAR(64) PRIMARY KEY,
+  identifier VARCHAR(191) NOT NULL,
+  otp_code VARCHAR(10) NOT NULL,
+  type ENUM('register', 'login', 'reset_password') NOT NULL DEFAULT 'register',
+  attempts INT NOT NULL DEFAULT 0,
+  expires_at DATETIME NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_otp_identifier (identifier),
+  INDEX idx_otp_expires (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS processing_jobs (
@@ -124,6 +140,7 @@ export async function runDatabaseMigrations(): Promise<{ success: boolean; messa
   const tables = [
     'plans',
     'users',
+    'otp_verifications',
     'processing_jobs',
     'processing_results',
     'failed_jobs',

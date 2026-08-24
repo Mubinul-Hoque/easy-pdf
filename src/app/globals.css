@@ -67,3 +67,14 @@ body {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
+
+/* Completely hide Next.js dev indicator badge in bottom-left/bottom-right */
+[data-nextjs-toast],
+[data-nextjs-indicator],
+[data-next-badge],
+#__next-build-watcher,
+#next-indicator,
+nextjs-portal {
+  display: none !important;
+}
+

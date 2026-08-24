@@ -16,7 +16,7 @@ import {
   Download,
   FileSpreadsheet,
 } from 'lucide-react';
-import { AdminStats, AdminJobRecord } from '@/lib/admin-service';
+import type { AdminStats, AdminJobRecord } from '@/lib/admin-service';
 import { formatBytes, formatUptime } from '@/lib/format-utils';
 
 interface AdminOverviewTabProps {

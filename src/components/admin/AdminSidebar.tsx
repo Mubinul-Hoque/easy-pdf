@@ -15,10 +15,12 @@ import {
   ShieldCheck,
   CreditCard,
   ShieldAlert,
+  Palette,
 } from 'lucide-react';
-import { AdminUser } from '@/lib/admin-auth';
+import { useSettings } from '@/context/SettingsContext';
+import type { AdminUser } from '@/lib/admin-auth';
 
-export type AdminTab = 'overview' | 'users' | 'plans' | 'files' | 'tools' | 'security' | 'system';
+export type AdminTab = 'overview' | 'users' | 'plans' | 'files' | 'tools' | 'security' | 'settings' | 'system';
 
 interface AdminSidebarProps {
   currentTab: AdminTab;
@@ -37,12 +39,14 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
   isOpen,
   onClose,
 }) => {
+  const { settings } = useSettings();
   const navItems: Array<{ id: AdminTab; label: string; icon: any; badge?: string }> = [
     { id: 'overview', label: 'Overview & KPIs', icon: LayoutDashboard },
     { id: 'users', label: 'Users & Accounts', icon: Users },
     { id: 'plans', label: 'Plan Pricing & Quotas', icon: CreditCard },
     { id: 'files', label: 'Storage & Retention', icon: HardDrive },
     { id: 'tools', label: 'PDF Tool Switchboard', icon: Sliders },
+    { id: 'settings', label: 'Branding & Settings', icon: Palette },
     { id: 'security', label: 'Security & IP Bans', icon: ShieldAlert },
     { id: 'system', label: 'System Health & DB', icon: Activity },
   ];
@@ -67,17 +71,39 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
         <div>
           <div className="flex h-16 items-center justify-between border-b border-slate-800/80 px-6">
             <Link href="/admin" className="flex items-center gap-2.5 group">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-500 to-indigo-600 text-white shadow-md shadow-indigo-500/30">
-                <Layers className="h-5 w-5" />
-              </div>
-              <div>
-                <span className="text-base font-bold tracking-tight text-white flex items-center gap-1.5">
-                  Easy<span className="text-indigo-400">PDF</span>
+              {settings.logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <div className="flex items-center gap-2">
+                  <img
+                    src={settings.logoUrl}
+                    alt={settings.appName || 'Admin Logo'}
+                    className="h-8 max-w-[150px] object-contain group-hover:scale-105 transition-transform duration-200"
+                  />
                   <span className="rounded-md bg-indigo-500/20 px-1.5 py-0.5 text-[9px] font-black uppercase text-indigo-300 border border-indigo-500/30">
                     Admin
                   </span>
-                </span>
-              </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-500 to-indigo-600 text-white shadow-md shadow-indigo-500/30 group-hover:scale-105 transition-transform duration-200">
+                    <Layers className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <span className="text-base font-bold tracking-tight text-white flex items-center gap-1.5">
+                      {settings.appName && settings.appName.toLowerCase() !== 'easypdf' ? (
+                        settings.appName
+                      ) : (
+                        <>
+                          Easy<span className="text-indigo-400">PDF</span>
+                        </>
+                      )}
+                      <span className="rounded-md bg-indigo-500/20 px-1.5 py-0.5 text-[9px] font-black uppercase text-indigo-300 border border-indigo-500/30">
+                        Admin
+                      </span>
+                    </span>
+                  </div>
+                </>
+              )}
             </Link>
           </div>
 
