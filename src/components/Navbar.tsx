@@ -45,11 +45,6 @@ export const Navbar = () => {
     setMounted(true);
   }, []);
 
-  // Do not render consumer website navbar on Admin portal pages
-  if (pathname?.startsWith('/admin')) {
-    return null;
-  }
-
   // Close dropdowns on outside click
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -97,6 +92,11 @@ export const Navbar = () => {
     if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
     return (parts[0][0] + parts[1][0]).toUpperCase();
   };
+
+  // Do not render consumer website navbar on Admin portal pages
+  if (pathname?.startsWith('/admin')) {
+    return null;
+  }
 
   return (
     <>
