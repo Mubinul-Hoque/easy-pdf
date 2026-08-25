@@ -4,6 +4,8 @@ import React, { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { UploadCloud, AlertCircle, Plus, Sparkles } from 'lucide-react';
 
+import { formatMbSize } from '@/context/ToolsContext';
+
 interface DropZoneProps {
   onFilesSelected: (files: File[]) => void;
   multiple?: boolean;
@@ -21,7 +23,7 @@ const DropZoneComponent: React.FC<DropZoneProps> = ({
   multiple = true,
   maxSizeMB = 100,
   accept = { 'application/pdf': ['.pdf'] },
-  acceptLabel = 'PDF files up to 100MB',
+  acceptLabel,
   title = 'Select PDF files',
   subtitle = 'or drop PDFs here to get started',
   badge,
@@ -29,18 +31,26 @@ const DropZoneComponent: React.FC<DropZoneProps> = ({
 }) => {
   const [error, setError] = useState<string | null>(null);
 
+  const displayAcceptLabel = acceptLabel || `PDF files up to ${formatMbSize(maxSizeMB)}`;
+
   const onDrop = useCallback(
     (acceptedFiles: File[], rejectedFiles: any[]) => {
       setError(null);
       if (rejectedFiles && rejectedFiles.length > 0) {
-        setError('Please upload valid supported files under the file size limit.');
+        const firstRejection = rejectedFiles[0];
+        const isTooLarge = firstRejection.errors?.some((e: any) => e.code === 'file-too-large');
+        if (isTooLarge) {
+          setError(`File exceeds the maximum upload limit of ${formatMbSize(maxSizeMB)}.`);
+        } else {
+          setError('Please upload valid supported PDF files.');
+        }
         return;
       }
       if (acceptedFiles.length > 0) {
         onFilesSelected(acceptedFiles);
       }
     },
-    [onFilesSelected]
+    [onFilesSelected, maxSizeMB]
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -88,7 +98,7 @@ const DropZoneComponent: React.FC<DropZoneProps> = ({
         </div>
 
         <div className="mt-4 text-xs text-slate-400 flex items-center gap-2">
-          <span>{acceptLabel}</span>
+          <span>{displayAcceptLabel}</span>
           <span>•</span>
           <span>Fast & 100% Secure</span>
         </div>

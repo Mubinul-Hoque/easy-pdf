@@ -30,10 +30,15 @@ import { AuthModal } from '@/components/auth/AuthModal';
 import { usePathname } from 'next/navigation';
 import { useSettings } from '@/context/SettingsContext';
 
+import { useToolConfig } from '@/context/ToolsContext';
+import { Megaphone } from 'lucide-react';
+
 export const Navbar = () => {
   const pathname = usePathname();
   const { user, isAuthenticated, logout, openAuthModal } = useAuth();
   const { settings } = useSettings();
+  const { banner } = useToolConfig();
+  const [bannerDismissed, setBannerDismissed] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -100,6 +105,21 @@ export const Navbar = () => {
 
   return (
     <>
+      {banner && !bannerDismissed && (
+        <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 text-white px-4 py-2 text-xs font-semibold flex items-center justify-between shadow-sm">
+          <div className="mx-auto flex items-center gap-2 text-center">
+            <Megaphone className="h-3.5 w-3.5 shrink-0 animate-bounce" />
+            <span>{banner}</span>
+          </div>
+          <button
+            onClick={() => setBannerDismissed(true)}
+            aria-label="Dismiss banner"
+            className="text-white/80 hover:text-white p-1 rounded-md transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
       <header
         suppressHydrationWarning
         className="sticky top-0 z-50 w-full border-b border-slate-200 bg-white/95 backdrop-blur-xl shadow-xs"

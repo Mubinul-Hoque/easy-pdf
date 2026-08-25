@@ -20,6 +20,7 @@ import {
   requestServerFileCleanup,
 } from '@/lib/download-manager';
 import { formatBytes } from '@/lib/format-utils';
+import { BackgroundTaskManager } from '@/lib/background-task-manager';
 
 interface ProcessingModalProps {
   progress: JobProgress;
@@ -39,6 +40,38 @@ const ProcessingModalComponent: React.FC<ProcessingModalProps> = ({
   >('idle');
   const [storageCleaned, setStorageCleaned] = useState(false);
   const downloadedRef = useRef(false);
+  const originalTitleRef = useRef<string>('');
+
+  // Background Task Keep-Alive & Dynamic Tab Title
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+
+    if (!originalTitleRef.current) {
+      originalTitleRef.current = document.title;
+    }
+
+    if (progress.status === 'processing' || progress.status === 'uploading') {
+      BackgroundTaskManager.startKeepAlive();
+      document.title = `[${progress.percent}%] ${progress.message || 'Processing...'} — EasyPDF`;
+    } else if (progress.status === 'completed') {
+      BackgroundTaskManager.stopKeepAlive();
+      document.title = `✅ Completed! — EasyPDF`;
+    } else {
+      BackgroundTaskManager.stopKeepAlive();
+      if (originalTitleRef.current) {
+        document.title = originalTitleRef.current;
+      }
+    }
+
+    return () => {
+      if (progress.status === 'processing' || progress.status === 'uploading') {
+        BackgroundTaskManager.stopKeepAlive();
+      }
+      if (originalTitleRef.current) {
+        document.title = originalTitleRef.current;
+      }
+    };
+  }, [progress.status, progress.percent, progress.message]);
 
   // Auto-Download on Completion & Subsequent Server Storage Cleanup
   useEffect(() => {
@@ -93,6 +126,9 @@ const ProcessingModalComponent: React.FC<ProcessingModalProps> = ({
       downloadedRef.current = false;
       setDownloadStatus('idle');
       setStorageCleaned(false);
+      if (originalTitleRef.current) {
+        document.title = originalTitleRef.current;
+      }
     }
   }, [progress.status]);
 

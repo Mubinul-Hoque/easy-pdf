@@ -24,6 +24,8 @@ export const AdminToolsTab: React.FC<AdminToolsTabProps> = ({ token }) => {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [bannerSaved, setBannerSaved] = useState(false);
 
+  const [savedToolId, setSavedToolId] = useState<string | null>(null);
+
   const fetchConfigs = React.useCallback(async () => {
     try {
       setLoading(true);
@@ -60,7 +62,13 @@ export const AdminToolsTab: React.FC<AdminToolsTabProps> = ({ token }) => {
       });
       const data = await res.json();
       if (data.success) {
-        setConfigs((prev) => prev.map((c) => (c.id === toolId ? { ...c, enabled: next } : c)));
+        if (data.configs) {
+          setConfigs(data.configs);
+        } else {
+          setConfigs((prev) => prev.map((c) => (c.id === toolId ? { ...c, enabled: next } : c)));
+        }
+        setSavedToolId(toolId);
+        setTimeout(() => setSavedToolId(null), 2000);
       }
     } catch (err) {
       console.error(err);
@@ -82,9 +90,15 @@ export const AdminToolsTab: React.FC<AdminToolsTabProps> = ({ token }) => {
       });
       const data = await res.json();
       if (data.success) {
-        setConfigs((prev) =>
-          prev.map((c) => (c.id === toolId ? { ...c, maxFileSizeMb, batchLimit } : c))
-        );
+        if (data.configs) {
+          setConfigs(data.configs);
+        } else {
+          setConfigs((prev) =>
+            prev.map((c) => (c.id === toolId ? { ...c, maxFileSizeMb, batchLimit } : c))
+          );
+        }
+        setSavedToolId(toolId);
+        setTimeout(() => setSavedToolId(null), 2000);
       }
     } catch (err) {
       console.error(err);
@@ -207,6 +221,12 @@ export const AdminToolsTab: React.FC<AdminToolsTabProps> = ({ token }) => {
                     <option value={100}>100 MB</option>
                     <option value={250}>250 MB</option>
                     <option value={500}>500 MB</option>
+                    <option value={750}>750 MB</option>
+                    <option value={1024}>1 GB</option>
+                    <option value={1536}>1.5 GB</option>
+                    <option value={2048}>2 GB</option>
+                    <option value={2560}>2.5 GB</option>
+                    <option value={3072}>3 GB</option>
                   </select>
                 </div>
 
@@ -228,20 +248,28 @@ export const AdminToolsTab: React.FC<AdminToolsTabProps> = ({ token }) => {
                   </select>
                 </div>
 
-                {/* Status Toggle Switch */}
-                <button
-                  onClick={() => handleToggleTool(tool.id, tool.enabled)}
-                  disabled={savingId === tool.id}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    tool.enabled ? 'bg-emerald-500' : 'bg-slate-300'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      tool.enabled ? 'translate-x-6' : 'translate-x-1'
+                {/* Status Toggle Switch & Saved feedback */}
+                <div className="flex items-center gap-2">
+                  {savedToolId === tool.id && (
+                    <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1 animate-fade-in">
+                      <CheckCircle2 className="h-3 w-3" /> Saved
+                    </span>
+                  )}
+                  <button
+                    onClick={() => handleToggleTool(tool.id, tool.enabled)}
+                    disabled={savingId === tool.id}
+                    title={tool.enabled ? 'Click to disable (Maintenance Mode)' : 'Click to enable'}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      tool.enabled ? 'bg-emerald-500' : 'bg-slate-300'
                     }`}
-                  />
-                </button>
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        tool.enabled ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
             </div>
           ))}

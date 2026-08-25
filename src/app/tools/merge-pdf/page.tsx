@@ -7,12 +7,15 @@ import { PDFPreviewFrame } from '@/components/PDFPreviewFrame';
 import { PDFPreviewModal } from '@/components/PDFPreviewModal';
 import { PDFEngine } from '@/lib/pdf-engine';
 import { JobProgress } from '@/lib/types';
-import { Layers, Trash2, ArrowUp, ArrowDown, Plus, Sparkles, FileText, Eye, CheckCircle2 } from 'lucide-react';
+import { useToolConfig } from '@/context/ToolsContext';
+import { Layers, Trash2, ArrowUp, ArrowDown, Plus, Sparkles, FileText, Eye, CheckCircle2, AlertCircle, Wrench } from 'lucide-react';
 
 export default function MergePDFPage() {
+  const toolConfig = useToolConfig('merge-pdf');
   const [files, setFiles] = useState<File[]>([]);
   const [activePreviewIndex, setActivePreviewIndex] = useState<number>(0);
   const [modalPreviewFile, setModalPreviewFile] = useState<File | null>(null);
+  const [batchLimitError, setBatchLimitError] = useState<string | null>(null);
 
   const [progress, setProgress] = useState<JobProgress>({
     status: 'idle',
@@ -21,7 +24,31 @@ export default function MergePDFPage() {
   });
 
   const handleFilesSelected = (newFiles: File[]) => {
-    setFiles((prev) => [...prev, ...newFiles]);
+    setBatchLimitError(null);
+    const validFiles: File[] = [];
+    for (const f of newFiles) {
+      if (f.size > toolConfig.maxSizeBytes) {
+        setBatchLimitError(
+          `"${f.name}" exceeds the maximum allowed file size of ${toolConfig.formattedMaxSize}.`
+        );
+      } else {
+        validFiles.push(f);
+      }
+    }
+
+    if (validFiles.length === 0) return;
+
+    const totalCount = files.length + validFiles.length;
+    let allowedFiles = validFiles;
+    if (totalCount > toolConfig.batchLimit) {
+      const remaining = Math.max(0, toolConfig.batchLimit - files.length);
+      allowedFiles = validFiles.slice(0, remaining);
+      setBatchLimitError(`Batch limit reached: Maximum ${toolConfig.batchLimit} files allowed per batch.`);
+    }
+
+    if (allowedFiles.length > 0) {
+      setFiles((prev) => [...prev, ...allowedFiles]);
+    }
   };
 
   const removeFile = (index: number) => {
@@ -111,15 +138,32 @@ export default function MergePDFPage() {
         </p>
       </div>
 
+      {/* Tool Maintenance Warning */}
+      {!toolConfig.isEnabled && (
+        <div className="max-w-3xl mx-auto mb-6 flex items-center gap-3 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 text-sm font-semibold">
+          <Wrench className="h-5 w-5 text-amber-600 shrink-0" />
+          <span>This tool is temporarily in maintenance mode as set by administrators.</span>
+        </div>
+      )}
+
+      {/* Quota error message */}
+      {batchLimitError && (
+        <div className="max-w-3xl mx-auto mb-6 flex items-center gap-3 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium animate-in fade-in">
+          <AlertCircle className="h-5 w-5 text-red-500 shrink-0" />
+          <span>{batchLimitError}</span>
+        </div>
+      )}
+
       {/* Main Workspace */}
       {files.length === 0 ? (
         <div className="max-w-3xl mx-auto">
           <DropZone
             onFilesSelected={handleFilesSelected}
             multiple={true}
+            maxSizeMB={toolConfig.maxFileSizeMb}
             title="Select PDF files to Merge"
             subtitle="or drop 2 or more PDF files here"
-            badge="Combine multiple PDFs"
+            badge={`Combine multiple PDFs • Files up to ${toolConfig.formattedMaxSize}`}
           />
         </div>
       ) : (

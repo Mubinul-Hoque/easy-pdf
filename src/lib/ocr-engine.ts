@@ -1,7 +1,6 @@
-'use client';
-
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { ProcessedResult } from './types';
+import { BackgroundTaskManager, yieldExecution } from './background-task-manager';
 
 export interface OCRBBox {
   x0: number;
@@ -70,21 +69,21 @@ export class OCREngine {
     const len = data.length;
 
     // 1. Grayscale & Luminance Analysis
-    const grayValues = new Uint8Array(len / 4);
+    const pixelCount = (len >>> 2);
+    const grayValues = new Uint8Array(pixelCount);
     let minLum = 255;
     let maxLum = 0;
     let totalLum = 0;
 
+    // Fast integer-weighted perceived luminance calculation
     for (let i = 0, g = 0; i < len; i += 4, g++) {
-      // ITU-R BT.709 perceived luminance
-      const gray = Math.round(0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]);
+      const gray = ((data[i] * 218 + data[i + 1] * 732 + data[i + 2] * 74) >> 10);
       grayValues[g] = gray;
       if (gray < minLum) minLum = gray;
       if (gray > maxLum) maxLum = gray;
       totalLum += gray;
     }
 
-    const avgLum = totalLum / (len / 4);
     const lumRange = Math.max(1, maxLum - minLum);
 
     // Determine contrast multiplier based on preset
@@ -99,24 +98,16 @@ export class OCREngine {
       thresholdOffset = 5;
     }
 
-    // 2. Contrast Stretching & Background Normalization
+    // 2. Fast Contrast Stretching & Background Normalization
     for (let i = 0, g = 0; i < len; i += 4, g++) {
-      let v = grayValues[g];
-
-      // Linear histogram stretch
-      let stretched = ((v - minLum) / lumRange) * 255;
-
-      // S-curve contrast enhancement
+      const v = grayValues[g];
+      const stretched = ((v - minLum) / lumRange) * 255;
       let adjusted = (stretched - 128) * contrastFactor + 128 + thresholdOffset;
 
-      // Whitening light backgrounds (paper texture / shadow removal)
-      if (adjusted > 210) {
-        adjusted = 255;
-      } else if (adjusted < 45) {
-        adjusted = 0;
-      }
+      if (adjusted > 210) adjusted = 255;
+      else if (adjusted < 45) adjusted = 0;
 
-      const clamped = Math.max(0, Math.min(255, Math.round(adjusted)));
+      const clamped = adjusted < 0 ? 0 : adjusted > 255 ? 255 : Math.round(adjusted);
       data[i] = clamped;
       data[i + 1] = clamped;
       data[i + 2] = clamped;
@@ -166,22 +157,20 @@ export class OCREngine {
     return canvas;
   }
 
-  /**
-   * Run OCR on a list of HTMLCanvasElements with high accuracy and reading order
-   */
   static async recognizeCanvases(
     canvases: HTMLCanvasElement[],
     language: string = 'eng',
     preset: OCROptimizationPreset = 'standard',
     onProgress?: (percent: number, message: string) => void
   ): Promise<OCRPageResult[]> {
-    const Tesseract = await import('tesseract.js');
-    const results: OCRPageResult[] = [];
+    return BackgroundTaskManager.runWithKeepAlive(async () => {
+      const Tesseract = await import('tesseract.js');
+      const results: OCRPageResult[] = [];
 
-    // Create and configure neural Tesseract worker
-    const worker = await Tesseract.createWorker(language);
+      // Create and configure neural Tesseract worker
+      const worker = await Tesseract.createWorker(language);
 
-    try {
+      try {
       // Configure Tesseract parameters for maximum layout & table preservation
       await worker.setParameters({
         preserve_interword_spaces: '1',
@@ -302,12 +291,15 @@ export class OCREngine {
           width: rawCanvas.width,
           height: rawCanvas.height,
         });
+
+        await yieldExecution();
       }
     } finally {
       await worker.terminate();
     }
 
     return results;
+    });
   }
 
   /**
@@ -376,14 +368,35 @@ export class OCREngine {
       const canvas = canvases[i];
       const ocrPage = ocrResults[i] || { lines: [], width: canvas.width, height: canvas.height };
 
-      // Convert canvas to image bytes with high visual quality
-      const imgDataUrl = canvas.toDataURL('image/png', 0.95);
+      // Fast direct binary buffer conversion (avoids slow Base64 string allocation)
+      const imgBytes = await new Promise<ArrayBuffer>((resolve, reject) => {
+        if (canvas.toBlob) {
+          canvas.toBlob(
+            (blob) => {
+              if (blob) blob.arrayBuffer().then(resolve).catch(reject);
+              else {
+                try {
+                  const dUrl = canvas.toDataURL('image/jpeg', 0.95);
+                  fetch(dUrl).then((r) => r.arrayBuffer()).then(resolve).catch(reject);
+                } catch (err) {
+                  reject(err);
+                }
+              }
+            },
+            'image/jpeg',
+            0.95
+          );
+        } else {
+          const dUrl = canvas.toDataURL('image/jpeg', 0.95);
+          fetch(dUrl).then((r) => r.arrayBuffer()).then(resolve).catch(reject);
+        }
+      });
+
       // Immediately reset canvas bitmap to free memory
       canvas.width = 0;
       canvas.height = 0;
 
-      const imgBytes = await fetch(imgDataUrl).then((r) => r.arrayBuffer());
-      const embeddedImg = await pdfDoc.embedPng(imgBytes);
+      const embeddedImg = await pdfDoc.embedJpg(imgBytes);
 
       // PDF page dimensions in standard points (72 DPI)
       const pdfWidth = 612;
@@ -454,7 +467,7 @@ export class OCREngine {
       }
 
       // Yield to main thread for smooth progress bar and UI animations
-      await new Promise((r) => setTimeout(r, 0));
+      await yieldExecution();
     }
 
     // Set searchable metadata

@@ -18,6 +18,8 @@ import {
   Zap,
 } from 'lucide-react';
 import { PDFDocument } from 'pdf-lib';
+import { useToolConfig } from '@/context/ToolsContext';
+import { AlertCircle, Wrench } from 'lucide-react';
 
 interface FileWithMeta {
   file: File;
@@ -26,10 +28,12 @@ interface FileWithMeta {
 }
 
 export default function CompressPDFPage() {
+  const toolConfig = useToolConfig('compress-pdf');
   const [files, setFiles] = useState<FileWithMeta[]>([]);
   const [activePreviewIndex, setActivePreviewIndex] = useState<number>(0);
   const [level, setLevel] = useState<CompressionLevel>('balanced');
   const [exportMode, setExportMode] = useState<'zip' | 'individual'>('zip');
+  const [batchLimitError, setBatchLimitError] = useState<string | null>(null);
 
   const [progress, setProgress] = useState<JobProgress>({
     status: 'idle',
@@ -39,9 +43,37 @@ export default function CompressPDFPage() {
 
   const handleFilesSelected = async (newFiles: File[]) => {
     if (newFiles.length === 0) return;
+    setBatchLimitError(null);
+
+    // Enforce configured max file size
+    const validFiles: File[] = [];
+    for (const f of newFiles) {
+      if (f.size > toolConfig.maxSizeBytes) {
+        setBatchLimitError(
+          `"${f.name}" (${(f.size / (1024 * 1024)).toFixed(1)} MB) exceeds the maximum allowed file size of ${toolConfig.formattedMaxSize}.`
+        );
+      } else {
+        validFiles.push(f);
+      }
+    }
+
+    if (validFiles.length === 0) return;
+
+    // Enforce configured batch file limit
+    const totalCount = files.length + validFiles.length;
+    let allowedFiles = validFiles;
+    if (totalCount > toolConfig.batchLimit) {
+      const remainingQuota = Math.max(0, toolConfig.batchLimit - files.length);
+      allowedFiles = validFiles.slice(0, remainingQuota);
+      setBatchLimitError(
+        `Batch limit reached: Maximum ${toolConfig.batchLimit} files allowed per batch.`
+      );
+    }
+
+    if (allowedFiles.length === 0) return;
 
     const loadedMetas: FileWithMeta[] = [];
-    for (const f of newFiles) {
+    for (const f of allowedFiles) {
       try {
         const buffer = await f.arrayBuffer();
         const safeData = new Uint8Array(buffer).slice();
@@ -131,8 +163,8 @@ export default function CompressPDFPage() {
   const totalOriginalMB = (totalOriginalBytes / (1024 * 1024)).toFixed(2);
   const totalPages = files.reduce((acc, curr) => acc + curr.pageCount, 0);
 
-  const estimatedFactor = level === 'max' ? 0.25 : level === 'balanced' ? 0.5 : 0.8;
-  const estimatedSavingsPercent = level === 'max' ? '~75-90%' : level === 'balanced' ? '~45-65%' : '~15-30%';
+  const estimatedFactor = level === 'max' ? 0.20 : level === 'balanced' ? 0.50 : 0.75;
+  const estimatedSavingsPercent = level === 'max' ? '~80%' : level === 'balanced' ? '~50%' : '~25%';
   const estimatedOutputMB = (parseFloat(totalOriginalMB) * estimatedFactor).toFixed(2);
 
   const activeFile = files[activePreviewIndex]?.file || null;
@@ -146,12 +178,28 @@ export default function CompressPDFPage() {
           <Minimize2 className="h-6 w-6" />
         </div>
         <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight mb-3">
-          Bulk Compress PDF Files
+          Compress PDF Document
         </h1>
         <p className="text-slate-600 text-base max-w-xl mx-auto">
-          Reduce file size for single or multiple PDF documents simultaneously while maintaining crisp visual quality.
+          Reduce file size for single PDF documents or bulk process multiple files at once while maintaining crisp visual quality.
         </p>
       </div>
+
+      {/* Tool Maintenance Warning */}
+      {!toolConfig.isEnabled && (
+        <div className="max-w-3xl mx-auto mb-6 flex items-center gap-3 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 text-sm font-semibold">
+          <Wrench className="h-5 w-5 text-amber-600 shrink-0" />
+          <span>This tool is temporarily in maintenance mode as set by administrators. You may still preview features below.</span>
+        </div>
+      )}
+
+      {/* Quota error message if any */}
+      {batchLimitError && (
+        <div className="max-w-3xl mx-auto mb-6 flex items-center gap-3 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium animate-in fade-in">
+          <AlertCircle className="h-5 w-5 text-red-500 shrink-0" />
+          <span>{batchLimitError}</span>
+        </div>
+      )}
 
       {/* Main Workspace */}
       {files.length === 0 ? (
@@ -159,9 +207,11 @@ export default function CompressPDFPage() {
           <DropZone
             onFilesSelected={handleFilesSelected}
             multiple={true}
-            title="Select PDF files to Compress in Bulk"
-            subtitle="or drop single or multiple PDF files here"
-            badge="Up to 90% Size Reduction • Bulk Batch Mode"
+            maxSizeMB={toolConfig.maxFileSizeMb}
+            title="Select PDF to Compress"
+            subtitle="or drop a single PDF or multiple files here"
+            badge={`Up to 90% Size Reduction • Single & Batch Mode • Files up to ${toolConfig.formattedMaxSize}`}
+            buttonLabel="Choose PDF File(s)"
           />
         </div>
       ) : (
@@ -173,19 +223,27 @@ export default function CompressPDFPage() {
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-slate-900 text-sm">
-                    {files.length} Document{files.length === 1 ? '' : 's'} Selected
+                    {files.length === 1 ? '1 Document Selected' : `${files.length} Documents Selected`}
                   </span>
                   <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                    {files.length === 1 ? 'Single File' : 'Bulk Batch'}
+                    {files.length === 1 ? 'Single File Mode' : 'Bulk Batch Mode'}
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {totalPages} total pages • {totalOriginalMB} MB total size
+                  {totalPages} total page{totalPages === 1 ? '' : 's'} • {totalOriginalMB} MB total size
                 </p>
               </div>
 
               <div className="flex items-center gap-2">
-                <label className="cursor-pointer inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-xl border border-indigo-100 transition-colors">
+                <button
+                  onClick={handleCompress}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md shadow-indigo-500/20 transition-all hover:scale-[1.02]"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {files.length === 1 ? 'Compress PDF' : 'Compress All'}
+                </button>
+
+                <label className="cursor-pointer inline-flex items-center gap-1 text-xs font-semibold text-slate-700 hover:text-indigo-600 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-xl transition-colors">
                   <Plus className="h-3.5 w-3.5" />
                   Add More
                   <input
@@ -203,7 +261,7 @@ export default function CompressPDFPage() {
 
                 <button
                   onClick={() => setFiles([])}
-                  className="text-xs text-slate-500 hover:text-red-600 p-1.5 rounded-lg transition-colors"
+                  className="text-xs text-slate-400 hover:text-red-600 p-2 rounded-xl hover:bg-red-50 transition-colors"
                   title="Clear all files"
                 >
                   <Trash2 className="h-4 w-4" />

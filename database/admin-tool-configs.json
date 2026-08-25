@@ -1,0 +1,54 @@
+{
+  "configs": {
+    "merge-pdf": {
+      "id": "merge-pdf",
+      "name": "Merge PDF",
+      "enabled": true,
+      "maxFileSizeMb": 100,
+      "batchLimit": 25
+    },
+    "split-pdf": {
+      "id": "split-pdf",
+      "name": "Split PDF",
+      "enabled": true,
+      "maxFileSizeMb": 100,
+      "batchLimit": 25
+    },
+    "organize-pdf": {
+      "id": "organize-pdf",
+      "name": "Organize PDF",
+      "enabled": true,
+      "maxFileSizeMb": 100,
+      "batchLimit": 25
+    },
+    "rotate-pdf": {
+      "id": "rotate-pdf",
+      "name": "Rotate PDF",
+      "enabled": true,
+      "maxFileSizeMb": 100,
+      "batchLimit": 25
+    },
+    "compress-pdf": {
+      "id": "compress-pdf",
+      "name": "Compress PDF",
+      "enabled": true,
+      "maxFileSizeMb": 2560,
+      "batchLimit": 25
+    },
+    "repair-pdf": {
+      "id": "repair-pdf",
+      "name": "Repair PDF",
+      "enabled": true,
+      "maxFileSizeMb": 100,
+      "batchLimit": 25
+    },
+    "ocr-pdf": {
+      "id": "ocr-pdf",
+      "name": "OCR PDF",
+      "enabled": true,
+      "maxFileSizeMb": 100,
+      "batchLimit": 25
+    }
+  },
+  "banner": ""
+}

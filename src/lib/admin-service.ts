@@ -1,5 +1,8 @@
 import { query, DEFAULT_PLANS } from './db';
 import { PDF_TOOLS } from './pdf-tools-data';
+import { ensureSettingsTable } from './settings-service';
+import fs from 'fs';
+import path from 'path';
 
 export interface AdminStats {
   totalOperations: number;
@@ -91,19 +94,51 @@ export function invalidateCache(prefix?: string): void {
   }
 }
 
-// In-memory runtime state for tool configs & announcements
-const RUNTIME_TOOL_CONFIGS: Record<string, AdminToolConfig> = {};
-PDF_TOOLS.forEach((t) => {
-  RUNTIME_TOOL_CONFIGS[t.id] = {
-    id: t.id,
-    name: t.name,
-    enabled: true,
-    maxFileSizeMb: 100,
-    batchLimit: 25,
-  };
-});
+// Global singleton cache in memory for persistent lookups across Next.js reloads
+declare global {
+  var __easypdf_tool_configs: Record<string, AdminToolConfig> | undefined;
+  var __easypdf_maintenance_banner: string | undefined;
+}
 
-let RUNTIME_MAINTENANCE_BANNER: string = '';
+const CONFIG_FILE_PATH = path.join(process.cwd(), 'database', 'admin-tool-configs.json');
+
+function getDefaultToolConfigs(): Record<string, AdminToolConfig> {
+  const configs: Record<string, AdminToolConfig> = {};
+  PDF_TOOLS.forEach((t) => {
+    configs[t.id] = {
+      id: t.id,
+      name: t.name,
+      enabled: true,
+      maxFileSizeMb: 100,
+      batchLimit: 25,
+    };
+  });
+  return configs;
+}
+
+function loadFromFileSystem(): { configs?: Record<string, AdminToolConfig>; banner?: string } {
+  try {
+    if (fs.existsSync(CONFIG_FILE_PATH)) {
+      const raw = fs.readFileSync(CONFIG_FILE_PATH, 'utf-8');
+      return JSON.parse(raw);
+    }
+  } catch {
+    // Ignore file read error
+  }
+  return {};
+}
+
+function saveToFileSystem(data: { configs: Record<string, AdminToolConfig>; banner: string }) {
+  try {
+    const dir = path.dirname(CONFIG_FILE_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(CONFIG_FILE_PATH, JSON.stringify(data, null, 2), 'utf-8');
+  } catch {
+    // Ignore file write error
+  }
+}
 let RUNTIME_USER_RECORDS: AdminUserRecord[] = [
   {
     id: 'usr_001',
@@ -392,39 +427,145 @@ export const adminService = {
   },
 
   /**
-   * Get all tool configurations
+   * Get all tool configurations with multi-layer persistence (DB -> File -> Memory)
    */
   async getToolConfigs(): Promise<AdminToolConfig[]> {
-    return Object.values(RUNTIME_TOOL_CONFIGS);
+    const defaults = getDefaultToolConfigs();
+
+    // 1. Try DB first
+    try {
+      await ensureSettingsTable();
+      const rows = await query<{ setting_value: string }>(
+        `SELECT setting_value FROM system_settings WHERE setting_key = 'admin_tool_configs' LIMIT 1`
+      );
+      if (rows && rows.length > 0 && rows[0].setting_value) {
+        const parsed = JSON.parse(rows[0].setting_value);
+        if (parsed && typeof parsed === 'object') {
+          const merged: Record<string, AdminToolConfig> = { ...defaults, ...parsed };
+          globalThis.__easypdf_tool_configs = merged;
+          return Object.values(merged);
+        }
+      }
+    } catch {
+      // DB Fallback
+    }
+
+    // 2. Global Memory Cache
+    if (globalThis.__easypdf_tool_configs && Object.keys(globalThis.__easypdf_tool_configs).length > 0) {
+      return Object.values({ ...defaults, ...globalThis.__easypdf_tool_configs });
+    }
+
+    // 3. Local File Fallback
+    const fileData = loadFromFileSystem();
+    if (fileData.configs && Object.keys(fileData.configs).length > 0) {
+      const merged = { ...defaults, ...fileData.configs };
+      globalThis.__easypdf_tool_configs = merged;
+      return Object.values(merged);
+    }
+
+    // 4. Default fallback
+    globalThis.__easypdf_tool_configs = defaults;
+    return Object.values(defaults);
   },
 
   /**
-   * Update a specific tool's status or limits
+   * Update a specific tool's status or limits and persist to DB, file, and memory
    */
   async updateToolConfig(toolId: string, updates: Partial<AdminToolConfig>): Promise<AdminToolConfig | null> {
-    if (!RUNTIME_TOOL_CONFIGS[toolId]) return null;
+    await this.getToolConfigs();
 
-    RUNTIME_TOOL_CONFIGS[toolId] = {
-      ...RUNTIME_TOOL_CONFIGS[toolId],
+    const currentConfigs = globalThis.__easypdf_tool_configs || getDefaultToolConfigs();
+    if (!currentConfigs[toolId]) {
+      const toolMeta = PDF_TOOLS.find((t) => t.id === toolId);
+      currentConfigs[toolId] = {
+        id: toolId,
+        name: toolMeta?.name || toolId,
+        enabled: true,
+        maxFileSizeMb: 100,
+        batchLimit: 25,
+      };
+    }
+
+    currentConfigs[toolId] = {
+      ...currentConfigs[toolId],
       ...updates,
     };
 
-    return RUNTIME_TOOL_CONFIGS[toolId];
+    globalThis.__easypdf_tool_configs = currentConfigs;
+
+    // Persist to DB
+    try {
+      await ensureSettingsTable();
+      await query(
+        `INSERT INTO system_settings (setting_key, setting_value)
+         VALUES ('admin_tool_configs', ?)
+         ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = CURRENT_TIMESTAMP`,
+        [JSON.stringify(currentConfigs)]
+      );
+    } catch (err: any) {
+      console.warn('[Admin Tool Config DB Error]', err.message);
+    }
+
+    // Persist to File System
+    const currentBanner = globalThis.__easypdf_maintenance_banner || '';
+    saveToFileSystem({ configs: currentConfigs, banner: currentBanner });
+
+    return currentConfigs[toolId];
   },
 
   /**
    * Get current system banner
    */
   async getMaintenanceBanner(): Promise<string> {
-    return RUNTIME_MAINTENANCE_BANNER;
+    try {
+      await ensureSettingsTable();
+      const rows = await query<{ setting_value: string }>(
+        `SELECT setting_value FROM system_settings WHERE setting_key = 'admin_maintenance_banner' LIMIT 1`
+      );
+      if (rows && rows.length > 0 && rows[0].setting_value !== undefined) {
+        globalThis.__easypdf_maintenance_banner = rows[0].setting_value;
+        return rows[0].setting_value;
+      }
+    } catch {
+      // Fallback
+    }
+
+    if (globalThis.__easypdf_maintenance_banner !== undefined) {
+      return globalThis.__easypdf_maintenance_banner;
+    }
+
+    const fileData = loadFromFileSystem();
+    if (fileData.banner !== undefined) {
+      globalThis.__easypdf_maintenance_banner = fileData.banner;
+      return fileData.banner;
+    }
+
+    return '';
   },
 
   /**
    * Update system announcement banner
    */
   async setMaintenanceBanner(bannerText: string): Promise<string> {
-    RUNTIME_MAINTENANCE_BANNER = bannerText.trim();
-    return RUNTIME_MAINTENANCE_BANNER;
+    const cleanBanner = bannerText.trim();
+    globalThis.__easypdf_maintenance_banner = cleanBanner;
+
+    try {
+      await ensureSettingsTable();
+      await query(
+        `INSERT INTO system_settings (setting_key, setting_value)
+         VALUES ('admin_maintenance_banner', ?)
+         ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = CURRENT_TIMESTAMP`,
+        [cleanBanner]
+      );
+    } catch (err: any) {
+      console.warn('[Admin Banner DB Error]', err.message);
+    }
+
+    const currentConfigs = globalThis.__easypdf_tool_configs || getDefaultToolConfigs();
+    saveToFileSystem({ configs: currentConfigs, banner: cleanBanner });
+
+    return cleanBanner;
   },
 
   /**

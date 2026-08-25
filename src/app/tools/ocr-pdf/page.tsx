@@ -6,6 +6,7 @@ import { ProcessingModal } from '@/components/ProcessingModal';
 import { PDFPreviewFrame } from '@/components/PDFPreviewFrame';
 import { OCREngine, OCROptimizationPreset, OCRPageResult } from '@/lib/ocr-engine';
 import { JobProgress } from '@/lib/types';
+import { useToolConfig } from '@/context/ToolsContext';
 import {
   Search,
   Sparkles,
@@ -20,11 +21,15 @@ import {
   Wand2,
   Table as TableIcon,
   ShieldCheck,
+  AlertCircle,
+  Wrench,
 } from 'lucide-react';
 import { PDFDocument } from 'pdf-lib';
 
 export default function OCRPDFPage() {
+  const toolConfig = useToolConfig('ocr-pdf');
   const [file, setFile] = useState<File | null>(null);
+  const [sizeError, setSizeError] = useState<string | null>(null);
   const [pageCount, setPageCount] = useState<number>(0);
   const [selectedLanguage, setSelectedLanguage] = useState<string>('eng');
   const [preset, setPreset] = useState<OCROptimizationPreset>('standard');
@@ -41,6 +46,15 @@ export default function OCRPDFPage() {
   const handleFileSelected = async (files: File[]) => {
     if (files.length > 0) {
       const selected = files[0];
+      setSizeError(null);
+
+      if (selected.size > toolConfig.maxSizeBytes) {
+        setSizeError(
+          `"${selected.name}" exceeds the maximum allowed file size of ${toolConfig.formattedMaxSize}.`
+        );
+        return;
+      }
+
       setFile(selected);
       setExtractedResults(null);
       try {
@@ -161,15 +175,32 @@ export default function OCRPDFPage() {
         </p>
       </div>
 
+      {/* Tool Maintenance Warning */}
+      {!toolConfig.isEnabled && (
+        <div className="max-w-3xl mx-auto mb-6 flex items-center gap-3 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 text-sm font-semibold">
+          <Wrench className="h-5 w-5 text-amber-600 shrink-0" />
+          <span>This tool is temporarily in maintenance mode as set by administrators.</span>
+        </div>
+      )}
+
+      {/* Size error message */}
+      {sizeError && (
+        <div className="max-w-3xl mx-auto mb-6 flex items-center gap-3 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium animate-in fade-in">
+          <AlertCircle className="h-5 w-5 text-red-500 shrink-0" />
+          <span>{sizeError}</span>
+        </div>
+      )}
+
       {/* Main Workspace */}
       {!file ? (
         <div className="max-w-3xl mx-auto">
           <DropZone
             onFilesSelected={handleFileSelected}
             multiple={false}
+            maxSizeMB={toolConfig.maxFileSizeMb}
             title="Select Scanned PDF for Neural OCR"
             subtitle="or drag and drop a scanned document here"
-            badge="Neural Layout Recognition"
+            badge={`Neural Layout Recognition • Files up to ${toolConfig.formattedMaxSize}`}
           />
         </div>
       ) : (
