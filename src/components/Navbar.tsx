@@ -122,7 +122,7 @@ export const Navbar = () => {
       )}
       <header
         suppressHydrationWarning
-        className="sticky top-0 z-50 w-full border-b border-slate-200 bg-white/95 backdrop-blur-xl shadow-xs"
+        className="sticky top-0 z-50 w-full border-b border-slate-200 bg-white/95 backdrop-blur-xl shadow-sm"
       >
         <div className="mx-auto flex max-w-7xl items-center justify-between px-3 sm:px-6 lg:px-8 py-3">
           {/* Brand Logo & Title */}
@@ -289,7 +289,7 @@ export const Navbar = () => {
                   <button
                     type="button"
                     onClick={() => setUserMenuOpen(!userMenuOpen)}
-                    className="flex items-center gap-2 rounded-xl p-1.5 pr-2.5 sm:pr-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-all cursor-pointer shadow-xs"
+                    className="flex items-center gap-2 rounded-xl p-1.5 pr-2.5 sm:pr-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-all cursor-pointer shadow-sm"
                     title="Your Account Profile"
                   >
                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-tr from-indigo-600 to-indigo-500 text-xs font-bold text-white shadow-sm">
@@ -390,7 +390,7 @@ export const Navbar = () => {
                 <button
                   type="button"
                   onClick={() => openAuthModal({ mode: 'login' })}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50/80 px-3 sm:px-3.5 py-2 text-xs sm:text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition-all cursor-pointer shadow-2xs"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50/80 px-3 sm:px-3.5 py-2 text-xs sm:text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition-all cursor-pointer shadow-sm"
                 >
                   <LogIn className="h-4 w-4 text-indigo-500" />
                   <span>Sign In</span>

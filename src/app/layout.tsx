@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google';
 import './globals.css';
 import { Navbar } from '@/components/Navbar';
 import { FooterWrapper } from '@/components/FooterWrapper';
+import { Providers } from '@/components/Providers';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -77,9 +78,11 @@ export default function RootLayout({
         suppressHydrationWarning
         className={`${inter.className} min-h-screen flex flex-col bg-[#f8fafc] text-slate-900 antialiased selection:bg-indigo-500/20 selection:text-indigo-900`}
       >
-        <Navbar />
-        <main className="flex-1">{children}</main>
-        <FooterWrapper />
+        <Providers>
+          <Navbar />
+          <main className="flex-1">{children}</main>
+          <FooterWrapper />
+        </Providers>
       </body>
     </html>
   );
