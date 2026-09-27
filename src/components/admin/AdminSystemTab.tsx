@@ -228,8 +228,14 @@ export const AdminSystemTab: React.FC<AdminSystemTabProps> = ({ token, onNotific
               Pipeline Health & Security Status
             </h3>
           </div>
-          <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-            All Systems Nominal
+          <span
+            className={`text-xs font-bold px-2.5 py-1 rounded-full border ${
+              dbStatus?.status === 'HEALTHY'
+                ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                : 'text-amber-700 bg-amber-50 border-amber-200'
+            }`}
+          >
+            {dbStatus?.status === 'HEALTHY' ? 'All Systems Nominal' : 'Resilient Fallback Mode'}
           </span>
         </div>
 

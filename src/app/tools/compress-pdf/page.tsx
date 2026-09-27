@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { PDFDocument } from 'pdf-lib';
 import { useToolConfig } from '@/context/ToolsContext';
+import { checkUsageQuota, trackUsageCompletion } from '@/lib/usage-client';
 import { AlertCircle, Wrench } from 'lucide-react';
 
 interface FileWithMeta {
@@ -109,7 +110,20 @@ export default function CompressPDFPage() {
   const handleCompress = async () => {
     if (files.length === 0) return;
 
+    const startedAt = Date.now();
+
     try {
+      const quota = await checkUsageQuota('compress');
+      if (!quota.allowed) {
+        setProgress({
+          status: 'error',
+          percent: 0,
+          message: 'Daily limit reached',
+          error: quota.message || 'You have reached your daily operations limit.',
+        });
+        return;
+      }
+
       setProgress({
         status: 'processing',
         percent: 10,
@@ -138,6 +152,12 @@ export default function CompressPDFPage() {
           }));
         }
       );
+
+      trackUsageCompletion({
+        action: 'compress',
+        files: files.map((f) => ({ name: f.file.name, size: f.sizeBytes })),
+        durationMs: Date.now() - startedAt,
+      });
 
       setProgress({
         status: 'completed',

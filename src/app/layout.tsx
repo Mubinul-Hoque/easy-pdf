@@ -4,6 +4,7 @@ import './globals.css';
 import { Navbar } from '@/components/Navbar';
 import { FooterWrapper } from '@/components/FooterWrapper';
 import { Providers } from '@/components/Providers';
+import { MaintenanceGate } from '@/components/MaintenanceGate';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -80,7 +81,9 @@ export default function RootLayout({
       >
         <Providers>
           <Navbar />
-          <main className="flex-1">{children}</main>
+          <main className="flex-1 flex flex-col">
+            <MaintenanceGate>{children}</MaintenanceGate>
+          </main>
           <FooterWrapper />
         </Providers>
       </body>

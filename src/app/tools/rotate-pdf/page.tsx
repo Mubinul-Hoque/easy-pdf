@@ -7,6 +7,7 @@ import { PDFPreviewFrame } from '@/components/PDFPreviewFrame';
 import { PDFEngine } from '@/lib/pdf-engine';
 import { JobProgress } from '@/lib/types';
 import { useToolConfig } from '@/context/ToolsContext';
+import { checkUsageQuota, trackUsageCompletion } from '@/lib/usage-client';
 import { RotateCw, RotateCcw, Sparkles, FileText, CheckCircle2, AlertCircle, Wrench } from 'lucide-react';
 import { PDFDocument } from 'pdf-lib';
 
@@ -51,7 +52,20 @@ export default function RotatePDFPage() {
   const handleRotate = async () => {
     if (!file) return;
 
+    const startedAt = Date.now();
+
     try {
+      const quota = await checkUsageQuota('rotate');
+      if (!quota.allowed) {
+        setProgress({
+          status: 'error',
+          percent: 0,
+          message: 'Daily limit reached',
+          error: quota.message || 'You have reached your daily operations limit.',
+        });
+        return;
+      }
+
       setProgress({
         status: 'processing',
         percent: 30,
@@ -72,6 +86,12 @@ export default function RotatePDFPage() {
         targetPages,
         `rotated_${file.name}`
       );
+
+      trackUsageCompletion({
+        action: 'rotate',
+        files: [{ name: file.name, size: file.size }],
+        durationMs: Date.now() - startedAt,
+      });
 
       setProgress({
         status: 'completed',

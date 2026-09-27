@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/db';
 import { enforceSecurityGate } from '@/lib/security-gate';
 import { formatUserFriendlyError, logJobFailure } from '@/lib/error-handler';
+import { getAuthenticatedUser } from '@/lib/user-auth';
+import { settingsService } from '@/lib/settings-service';
+import { RETENTION_POLICY_HOURS } from '@/lib/settings-types';
 
 const SUPPORTED_ACTIONS = new Set([
   'merge',
@@ -51,7 +54,17 @@ export async function POST(
     }));
 
     const safePriority = Math.max(1, Math.min(10, Number(body.priority) || 5));
-    const safeUserId = typeof body.userId === 'string' ? body.userId.slice(0, 64) : null;
+
+    // The caller's own userId claim is never trusted — it's derived only from
+    // the authenticated session, otherwise this endpoint would let anyone
+    // attribute jobs (and burn through daily quotas) against another account.
+    const authUser = await getAuthenticatedUser(req).catch(() => null);
+    const safeUserId = authUser?.id || null;
+
+    const requestedStatus = body.status === 'COMPLETED' || body.status === 'FAILED' ? body.status : 'QUEUED';
+    const totalBytes = sanitizedFiles.reduce((sum: number, f: any) => sum + (f.size || 0), 0);
+    const durationMs = Number.isFinite(Number(body.durationMs)) ? Math.max(0, Math.round(Number(body.durationMs))) : 0;
+    const ocrPages = cleanAction === 'ocr' && Number.isFinite(Number(body.pageCount)) ? Math.max(0, Math.round(Number(body.pageCount))) : 0;
 
     // Persist to MySQL processing_jobs table
     try {
@@ -67,6 +80,46 @@ export async function POST(
           ranges: body.ranges || undefined,
         },
       });
+
+      if (requestedStatus === 'COMPLETED') {
+        await dbService.updateJobStatus(jobId, 'COMPLETED');
+
+        // Look up the user's plan retention window; guests get the admin-configured default
+        let retentionHours = RETENTION_POLICY_HOURS['1_hour'];
+        if (safeUserId) {
+          try {
+            const plans = await dbService.getPlans();
+            const dbUser = await dbService.getUserById(safeUserId);
+            const plan = plans.find((p) => p.id === dbUser?.plan_id);
+            if (plan) retentionHours = plan.storage_retention_hours;
+          } catch {
+            // Keep default retention
+          }
+        } else {
+          try {
+            const siteSettings = await settingsService.getSettings();
+            retentionHours = RETENTION_POLICY_HOURS[siteSettings.defaultRetentionPolicy];
+          } catch {
+            // Keep default retention
+          }
+        }
+
+        await dbService.saveResult({
+          id: `res_${jobId}`,
+          jobId,
+          storageKey: `ephemeral/${jobId}`,
+          fileName: sanitizedFiles[0]?.name || `${cleanAction}_result.pdf`,
+          fileSize: totalBytes,
+          durationMs,
+          retentionHours,
+        });
+
+        if (safeUserId) {
+          await dbService.incrementDailyUsage(safeUserId, 1, ocrPages, totalBytes);
+        }
+      } else if (requestedStatus === 'FAILED') {
+        await dbService.updateJobStatus(jobId, 'FAILED');
+      }
     } catch (dbErr) {
       console.warn('MySQL Job Logging notice:', dbErr);
     }
@@ -76,7 +129,7 @@ export async function POST(
       data: {
         jobId,
         action: cleanAction,
-        status: 'QUEUED',
+        status: requestedStatus,
         queuePosition: 1,
         estimatedDurationMs: 1200,
         createdAt: new Date().toISOString(),

@@ -82,7 +82,7 @@ docker run -d \
   -e MYSQL_USER=easypdf_user \
   -e MYSQL_PASSWORD=your_secure_password \
   -e MYSQL_DATABASE=easypdf \
-  -e ADMIN_EMAIL=mubinulhq@gmail.com \
+  -e ADMIN_EMAIL=your_admin_email@example.com \
   -e ADMIN_PASSWORD=your_admin_password \
   easypdf:latest
 ```
@@ -165,14 +165,14 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
-## 🔐 Administrator Credentials
+## 🔐 Administrator Access
 
 | Field | Value |
 | :--- | :--- |
 | **Login URL** | `http://localhost:3000/admin/login` |
-| **Admin Name** | `Mubinul Houqe` |
-| **Admin Email** | `mubinulhq@gmail.com` |
-| **Passkey** | `606505` |
+| **Admin Name / Email / Password** | Set via `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` in `.env.local` |
+
+There is no default admin account — the app denies all admin logins until these are configured. See `.env.example` for the full list of required variables.
 
 ---
 

@@ -7,6 +7,7 @@ import { PDFPageOrganizer, PageTileData } from '@/components/PDFPageOrganizer';
 import { PDFEngine } from '@/lib/pdf-engine';
 import { JobProgress } from '@/lib/types';
 import { useToolConfig } from '@/context/ToolsContext';
+import { checkUsageQuota, trackUsageCompletion } from '@/lib/usage-client';
 import { Grid, AlertCircle, Wrench } from 'lucide-react';
 
 export default function OrganizePDFPage() {
@@ -38,7 +39,20 @@ export default function OrganizePDFPage() {
   const handleSaveOrganizedPDF = async (pages: PageTileData[]) => {
     if (!file) return;
 
+    const startedAt = Date.now();
+
     try {
+      const quota = await checkUsageQuota('organize');
+      if (!quota.allowed) {
+        setProgress({
+          status: 'error',
+          percent: 0,
+          message: 'Daily limit reached',
+          error: quota.message || 'You have reached your daily operations limit.',
+        });
+        return;
+      }
+
       setProgress({
         status: 'processing',
         percent: 30,
@@ -62,6 +76,12 @@ export default function OrganizePDFPage() {
         })),
         `organized_${file.name}`
       );
+
+      trackUsageCompletion({
+        action: 'organize',
+        files: [{ name: file.name, size: file.size }],
+        durationMs: Date.now() - startedAt,
+      });
 
       setProgress({
         status: 'completed',

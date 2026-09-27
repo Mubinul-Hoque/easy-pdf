@@ -1,3 +1,5 @@
+export type RetentionPolicy = '15_mins' | '1_hour' | '24_hours';
+
 export interface SiteSettings {
   appName: string;
   appTagline: string;
@@ -10,8 +12,18 @@ export interface SiteSettings {
   metaDescription: string;
   copyrightText: string;
   maintenanceMode: boolean;
+  // Default retention window applied to anonymous/guest processing jobs
+  // (authenticated users still get their plan's own retention window).
+  defaultRetentionPolicy: RetentionPolicy;
+  autoPurgeEnabled: boolean;
   updatedAt?: string;
 }
+
+export const RETENTION_POLICY_HOURS: Record<RetentionPolicy, number> = {
+  '15_mins': 0.25,
+  '1_hour': 1,
+  '24_hours': 24,
+};
 
 export const DEFAULT_SETTINGS: SiteSettings = {
   appName: 'EasyPDF',
@@ -26,4 +38,6 @@ export const DEFAULT_SETTINGS: SiteSettings = {
     'All-in-one PDF platform. Merge, split, organize, rotate, compress, repair, and OCR PDF documents with instant speed and strict zero-retention privacy.',
   copyrightText: `© ${new Date().getFullYear()} EasyPDF Platform Inc. All rights reserved.`,
   maintenanceMode: false,
+  defaultRetentionPolicy: '1_hour',
+  autoPurgeEnabled: true,
 };

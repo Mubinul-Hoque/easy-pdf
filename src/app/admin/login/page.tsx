@@ -11,7 +11,8 @@ import {
   ArrowRight,
   Sparkles,
   AlertCircle,
-  KeyRound,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useSettings } from '@/context/SettingsContext';
 
@@ -20,6 +21,7 @@ export default function AdminLoginPage() {
   const { settings } = useSettings();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,11 +49,6 @@ export default function AdminLoginPage() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleFillDemo = () => {
-    setEmail('mubinulhq@gmail.com');
-    setPassword('606505');
   };
 
   return (
@@ -111,7 +108,7 @@ export default function AdminLoginPage() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="mubinulhq@gmail.com"
+                  placeholder="example@email.com"
                   className="block w-full rounded-xl border border-slate-700 bg-slate-800/80 pl-10 pr-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                 />
               </div>
@@ -127,13 +124,25 @@ export default function AdminLoginPage() {
                   <Lock className="h-4 w-4 text-slate-500" />
                 </div>
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••"
-                  className="block w-full rounded-xl border border-slate-700 bg-slate-800/80 pl-10 pr-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                  className="block w-full rounded-xl border border-slate-700 bg-slate-800/80 pl-10 pr-10 py-2.5 text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute inset-y-0 right-0 flex items-center pr-3.5 text-slate-400 hover:text-slate-200 transition-colors focus:outline-none"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
               </div>
             </div>
 
@@ -149,18 +158,6 @@ export default function AdminLoginPage() {
               </button>
             </div>
           </form>
-
-          {/* Quick Demo Autofill */}
-          <div className="mt-6 pt-5 border-t border-slate-800 text-center space-y-2">
-            <button
-              type="button"
-              onClick={handleFillDemo}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition-colors"
-            >
-              <KeyRound className="h-3.5 w-3.5" />
-              Auto-fill authorized credentials
-            </button>
-          </div>
         </div>
       </div>
     </div>

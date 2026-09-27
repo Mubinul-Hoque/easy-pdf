@@ -1,8 +1,30 @@
-import { query, DEFAULT_PLANS } from './db';
+import { query, dbService, getPurgeLedger, recordManualPurge } from './db';
 import { PDF_TOOLS } from './pdf-tools-data';
 import { ensureSettingsTable } from './settings-service';
 import fs from 'fs';
 import path from 'path';
+
+// Maps the short action names used by /api/pdf/[action] (and stored in
+// processing_jobs.operation_type) to the full tool ids used in PDF_TOOLS.
+const ACTION_TO_TOOL_ID: Record<string, string> = {
+  merge: 'merge-pdf',
+  split: 'split-pdf',
+  organize: 'organize-pdf',
+  rotate: 'rotate-pdf',
+  compress: 'compress-pdf',
+  repair: 'repair-pdf',
+  ocr: 'ocr-pdf',
+};
+
+const TOOL_COLOR_MAP: Record<string, string> = {
+  'compress-pdf': '#f59e0b',
+  'merge-pdf': '#6366f1',
+  'ocr-pdf': '#8b5cf6',
+  'organize-pdf': '#ec4899',
+  'split-pdf': '#3b82f6',
+  'rotate-pdf': '#10b981',
+  'repair-pdf': '#ef4444',
+};
 
 export interface AdminStats {
   totalOperations: number;
@@ -139,139 +161,120 @@ function saveToFileSystem(data: { configs: Record<string, AdminToolConfig>; bann
     // Ignore file write error
   }
 }
-let RUNTIME_USER_RECORDS: AdminUserRecord[] = [
-  {
-    id: 'usr_001',
-    name: 'Sarah Connor',
-    email: 'sarah.c@cyberdyne.org',
-    plan: 'business',
-    status: 'active',
-    totalOperations: 1420,
-    storageUsedBytes: 412000000,
-    createdAt: '2026-06-12T10:20:00Z',
-    lastActiveAt: '2026-08-23T18:14:00Z',
-  },
-  {
-    id: 'usr_002',
-    name: 'David Miller',
-    email: 'david.miller@acme-corp.io',
-    plan: 'pro',
-    status: 'active',
-    totalOperations: 384,
-    storageUsedBytes: 94000000,
-    createdAt: '2026-07-01T14:45:00Z',
-    lastActiveAt: '2026-08-23T17:30:00Z',
-  },
-  {
-    id: 'usr_003',
-    name: 'Elena Rostova',
-    email: 'elena.rostova@fintech.de',
-    plan: 'business',
-    status: 'active',
-    totalOperations: 2890,
-    storageUsedBytes: 890000000,
-    createdAt: '2026-05-19T08:10:00Z',
-    lastActiveAt: '2026-08-23T19:02:00Z',
-  },
-  {
-    id: 'usr_004',
-    name: 'Marcus Vance',
-    email: 'marcus.vance@gmail.com',
-    plan: 'free',
-    status: 'active',
-    totalOperations: 18,
-    storageUsedBytes: 12000000,
-    createdAt: '2026-08-15T09:30:00Z',
-    lastActiveAt: '2026-08-23T16:12:00Z',
-  },
-  {
-    id: 'usr_005',
-    name: 'Hanna Schmidt',
-    email: 'h.schmidt@berlin-tech.eu',
-    plan: 'pro',
-    status: 'active',
-    totalOperations: 642,
-    storageUsedBytes: 154000000,
-    createdAt: '2026-07-22T11:05:00Z',
-    lastActiveAt: '2026-08-23T18:40:00Z',
-  },
-  {
-    id: 'usr_006',
-    name: 'Spam Bot Detection',
-    email: 'suspicious_traffic_44@tempmail.co',
-    plan: 'free',
-    status: 'suspended',
-    totalOperations: 95,
-    storageUsedBytes: 25000000,
-    createdAt: '2026-08-21T03:12:00Z',
-    lastActiveAt: '2026-08-21T03:25:00Z',
-  },
-];
-
-const SERVER_START_TIME = Date.now();
-
 export const adminService = {
   /**
-   * Get all aggregated system statistics with 10s TTL caching
+   * Get all aggregated system statistics with 10s TTL caching.
+   * Every figure is computed from real tables; if the DB is unreachable
+   * the metrics are honestly zeroed rather than backfilled with placeholders.
    */
   async getDashboardStats(): Promise<AdminStats> {
     const cached = getCached<AdminStats>('admin_kpi_stats');
     if (cached) return cached;
 
-    let dbJobsCount = 0;
-    let dbUsersCount = RUNTIME_USER_RECORDS.length;
-    let dbActiveJobs = 0;
+    const ledger = await getPurgeLedger();
+
+    let totalOperations = 0;
+    let operationsToday = 0;
+    let totalUsers = 0;
+    let activeJobsCount = 0;
+    let activeSubscriptions = 0;
+    let monthlyRecurringRevenue = 0;
+    let currentTempStorageBytes = 0;
+    let avgLatencyMs = 0;
+    let errorRatePercent = 0;
+    let toolUsage: AdminStats['toolUsageBreakdown'] = [];
+    let dailyVolume: AdminStats['dailyVolume'] = [];
 
     try {
-      const [jobCounts, activeJobs] = await Promise.all([
+      const [
+        totalOpsRows,
+        todayOpsRows,
+        usersRows,
+        activeJobsRows,
+        revenueRows,
+        tempStorageRows,
+        latencyRows,
+        errorRows,
+        toolUsageRows,
+        dailyVolumeRows,
+      ] = await Promise.all([
         query<{ count: number }>(`SELECT COUNT(*) as count FROM processing_jobs`),
+        query<{ count: number }>(`SELECT COUNT(*) as count FROM processing_jobs WHERE DATE(created_at) = CURDATE()`),
+        query<{ count: number }>(`SELECT COUNT(*) as count FROM users`),
         query<{ count: number }>(`SELECT COUNT(*) as count FROM processing_jobs WHERE status IN ('QUEUED', 'PROCESSING')`),
+        query<{ revenue: number; count: number }>(
+          `SELECT COALESCE(SUM(p.price_monthly), 0) as revenue, COUNT(*) as count
+           FROM users u JOIN plans p ON p.id = u.plan_id
+           WHERE u.status = 'active' AND p.price_monthly > 0`
+        ),
+        query<{ bytes: number }>(`SELECT COALESCE(SUM(file_size), 0) as bytes FROM processing_results WHERE expires_at > NOW()`),
+        // processing_duration_ms lives on processing_results, not processing_jobs
+        query<{ avg: number }>(`SELECT AVG(processing_duration_ms) as avg FROM processing_results`),
+        query<{ failed: number; total: number }>(
+          `SELECT (SELECT COUNT(*) FROM processing_jobs WHERE status = 'FAILED') as failed, COUNT(*) as total FROM processing_jobs`
+        ),
+        query<{ operation_type: string; count: number }>(
+          `SELECT operation_type, COUNT(*) as count FROM processing_jobs GROUP BY operation_type ORDER BY count DESC`
+        ),
+        query<{ day: string; operations: number; users: number }>(
+          `SELECT DATE(created_at) as day, COUNT(*) as operations, COUNT(DISTINCT user_id) as users
+           FROM processing_jobs WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+           GROUP BY DATE(created_at) ORDER BY day ASC`
+        ),
       ]);
 
-      if (jobCounts && jobCounts[0]) dbJobsCount = jobCounts[0].count;
-      if (activeJobs && activeJobs[0]) dbActiveJobs = activeJobs[0].count;
-    } catch {
-      // Fallback
+      totalOperations = totalOpsRows[0]?.count || 0;
+      operationsToday = todayOpsRows[0]?.count || 0;
+      totalUsers = usersRows[0]?.count || 0;
+      activeJobsCount = activeJobsRows[0]?.count || 0;
+      monthlyRecurringRevenue = Number(revenueRows[0]?.revenue) || 0;
+      activeSubscriptions = revenueRows[0]?.count || 0;
+      currentTempStorageBytes = Number(tempStorageRows[0]?.bytes) || 0;
+      avgLatencyMs = Math.round(Number(latencyRows[0]?.avg) || 0);
+
+      const failedCount = errorRows[0]?.failed || 0;
+      const totalJobsForError = errorRows[0]?.total || 0;
+      errorRatePercent = totalJobsForError > 0 ? Math.round((failedCount / totalJobsForError) * 10000) / 100 : 0;
+
+      const toolMetaMap = new Map(PDF_TOOLS.map((t) => [t.id, t]));
+      const toolTotal = toolUsageRows.reduce((sum, r) => sum + Number(r.count), 0) || 1;
+      toolUsage = toolUsageRows.map((r) => {
+        const toolId = ACTION_TO_TOOL_ID[r.operation_type] || r.operation_type;
+        return {
+          toolId,
+          name: toolMetaMap.get(toolId)?.name || r.operation_type,
+          count: Number(r.count),
+          percentage: Math.round((Number(r.count) / toolTotal) * 1000) / 10,
+          color: TOOL_COLOR_MAP[toolId] || '#6366f1',
+        };
+      });
+
+      const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const todayStr = new Date().toISOString().slice(0, 10);
+      dailyVolume = dailyVolumeRows.map((r) => {
+        const dateStr = typeof r.day === 'string' ? r.day.slice(0, 10) : new Date(r.day).toISOString().slice(0, 10);
+        const label = dateStr === todayStr ? 'Today' : dayLabels[new Date(`${dateStr}T00:00:00Z`).getUTCDay()];
+        return { date: label, operations: Number(r.operations), users: Number(r.users) };
+      });
+    } catch (err: any) {
+      console.warn('[Admin] Dashboard stats query failed — showing zeroed metrics:', err?.message);
     }
 
-    const totalOps = Math.max(14850, dbJobsCount + 14850);
-    const opsToday = 1240;
-
-    const toolUsage = [
-      { toolId: 'compress-pdf', name: 'Compress PDF', count: 4820, percentage: 32.5, color: '#f59e0b' },
-      { toolId: 'merge-pdf', name: 'Merge PDF', count: 3950, percentage: 26.6, color: '#6366f1' },
-      { toolId: 'ocr-pdf', name: 'OCR Searchable PDF', count: 2410, percentage: 16.2, color: '#8b5cf6' },
-      { toolId: 'organize-pdf', name: 'Organize PDF', count: 1840, percentage: 12.4, color: '#ec4899' },
-      { toolId: 'split-pdf', name: 'Split PDF', count: 1120, percentage: 7.5, color: '#3b82f6' },
-      { toolId: 'rotate-pdf', name: 'Rotate PDF', count: 480, percentage: 3.2, color: '#10b981' },
-      { toolId: 'repair-pdf', name: 'Repair PDF', count: 230, percentage: 1.6, color: '#ef4444' },
-    ];
-
-    const dailyVolume = [
-      { date: 'Mon', operations: 980, users: 42 },
-      { date: 'Tue', operations: 1120, users: 56 },
-      { date: 'Wed', operations: 1340, users: 68 },
-      { date: 'Thu', operations: 1210, users: 61 },
-      { date: 'Fri', operations: 1450, users: 74 },
-      { date: 'Sat', operations: 890, users: 38 },
-      { date: 'Today', operations: 1240, users: 65 },
-    ];
-
-    const uptimeSeconds = Math.round((Date.now() - SERVER_START_TIME) / 1000) + 86400 * 4;
+    const uptimeSeconds = Math.round(process.uptime());
 
     const stats: AdminStats = {
-      totalOperations: totalOps,
-      operationsToday: opsToday,
-      totalUsers: dbUsersCount,
-      activeSubscriptions: 84,
-      monthlyRecurringRevenue: 1840,
-      activeJobsCount: dbActiveJobs,
-      purgedFilesCount: 24190,
-      totalStoragePurgedBytes: 48200000000,
-      currentTempStorageBytes: 184000000,
+      totalOperations,
+      operationsToday,
+      totalUsers,
+      activeSubscriptions,
+      monthlyRecurringRevenue,
+      activeJobsCount,
+      purgedFilesCount: ledger.totalFilesPurged,
+      totalStoragePurgedBytes: ledger.totalBytesPurged,
+      currentTempStorageBytes,
       serverUptimeSeconds: uptimeSeconds,
-      avgLatencyMs: 245,
-      errorRatePercent: 0.12,
+      avgLatencyMs,
+      errorRatePercent,
       toolUsageBreakdown: toolUsage,
       dailyVolume,
     };
@@ -281,7 +284,7 @@ export const adminService = {
   },
 
   /**
-   * Get paginated registered users with sanitized filters
+   * Get paginated registered users (real `users` table) with sanitized filters.
    */
   async getUsers(
     searchQuery?: string,
@@ -289,54 +292,131 @@ export const adminService = {
     page: number = 1,
     limit: number = 20
   ): Promise<PaginatedUsersResponse> {
-    let list = [...RUNTIME_USER_RECORDS];
-
-    if (searchQuery) {
-      const q = searchQuery.trim().toLowerCase().replace(/[%_]/g, '');
-      if (q) {
-        list = list.filter(
-          (u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || u.id.toLowerCase().includes(q)
-        );
-      }
-    }
-
-    if (planFilter && planFilter !== 'all') {
-      list = list.filter((u) => u.plan === planFilter);
-    }
-
-    const total = list.length;
     const safePage = Math.max(1, page);
     const safeLimit = Math.min(100, Math.max(1, limit));
     const offset = (safePage - 1) * safeLimit;
-    const paginated = list.slice(offset, offset + safeLimit);
 
-    return {
-      users: paginated,
-      total,
-      page: safePage,
-      limit: safeLimit,
-      totalPages: Math.ceil(total / safeLimit) || 1,
-    };
+    try {
+      const plans = await dbService.getPlans();
+      const planIdToSlug = new Map(plans.map((p) => [p.id, p.slug]));
+      const slugToPlanIds = new Map<string, string[]>();
+      for (const p of plans) {
+        const list = slugToPlanIds.get(p.slug) || [];
+        list.push(p.id);
+        slugToPlanIds.set(p.slug, list);
+      }
+
+      const whereClauses: string[] = [];
+      const params: any[] = [];
+
+      if (searchQuery) {
+        const q = `%${searchQuery.trim().replace(/[%_]/g, '')}%`;
+        whereClauses.push(`(full_name LIKE ? OR email LIKE ? OR id LIKE ?)`);
+        params.push(q, q, q);
+      }
+
+      if (planFilter && planFilter !== 'all') {
+        const ids = slugToPlanIds.get(planFilter) || [];
+        if (ids.length === 0) {
+          // No plan matches this slug — return an empty page rather than all users
+          return { users: [], total: 0, page: safePage, limit: safeLimit, totalPages: 1 };
+        }
+        whereClauses.push(`plan_id IN (${ids.map(() => '?').join(',')})`);
+        params.push(...ids);
+      }
+
+      const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+      const countRows = await query<{ count: number }>(`SELECT COUNT(*) as count FROM users ${whereSql}`, params);
+      const total = countRows[0]?.count || 0;
+
+      const rows = await query<any>(
+        `SELECT id, full_name, email, phone, plan_id, status, total_operations, storage_used_bytes, created_at, last_active_at
+         FROM users ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+        [...params, safeLimit, offset]
+      );
+
+      const users: AdminUserRecord[] = rows.map((r) => ({
+        id: r.id,
+        name: r.full_name,
+        email: r.email || r.phone || 'unknown',
+        plan: (planIdToSlug.get(r.plan_id) as AdminUserRecord['plan']) || 'free',
+        status: r.status,
+        totalOperations: r.total_operations || 0,
+        storageUsedBytes: r.storage_used_bytes || 0,
+        createdAt: r.created_at,
+        lastActiveAt: r.last_active_at || r.created_at,
+      }));
+
+      return {
+        users,
+        total,
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit) || 1,
+      };
+    } catch (err: any) {
+      console.warn('[Admin] getUsers query failed — DB unavailable:', err?.message);
+      return { users: [], total: 0, page: safePage, limit: safeLimit, totalPages: 1 };
+    }
   },
 
   /**
-   * Update user status or plan tier
+   * Update a real user's plan tier and/or account status.
    */
   async updateUser(userId: string, updates: Partial<AdminUserRecord>): Promise<AdminUserRecord | null> {
-    const idx = RUNTIME_USER_RECORDS.findIndex((u) => u.id === userId);
-    if (idx === -1) return null;
+    try {
+      const setClauses: string[] = [];
+      const params: any[] = [];
 
-    RUNTIME_USER_RECORDS[idx] = {
-      ...RUNTIME_USER_RECORDS[idx],
-      ...updates,
-    };
+      if (updates.plan) {
+        const plans = await dbService.getPlans();
+        const targetPlan = plans.find((p) => p.slug === updates.plan);
+        if (targetPlan) {
+          setClauses.push('plan_id = ?');
+          params.push(targetPlan.id);
+        }
+      }
+      if (updates.status) {
+        setClauses.push('status = ?');
+        params.push(updates.status);
+      }
+      if (setClauses.length === 0) return null;
 
-    invalidateCache('admin_kpi_stats');
-    return RUNTIME_USER_RECORDS[idx];
+      params.push(userId);
+      await query(`UPDATE users SET ${setClauses.join(', ')} WHERE id = ?`, params);
+      invalidateCache('admin_kpi_stats');
+
+      const rows = await query<any>(
+        `SELECT id, full_name, email, phone, plan_id, status, total_operations, storage_used_bytes, created_at, last_active_at
+         FROM users WHERE id = ? LIMIT 1`,
+        [userId]
+      );
+      if (rows.length === 0) return null;
+
+      const plans = await dbService.getPlans();
+      const planSlug = plans.find((p) => p.id === rows[0].plan_id)?.slug || 'free';
+
+      return {
+        id: rows[0].id,
+        name: rows[0].full_name,
+        email: rows[0].email || rows[0].phone || 'unknown',
+        plan: planSlug as AdminUserRecord['plan'],
+        status: rows[0].status,
+        totalOperations: rows[0].total_operations || 0,
+        storageUsedBytes: rows[0].storage_used_bytes || 0,
+        createdAt: rows[0].created_at,
+        lastActiveAt: rows[0].last_active_at || rows[0].created_at,
+      };
+    } catch (err: any) {
+      console.warn('[Admin] updateUser failed — DB unavailable:', err?.message);
+      return null;
+    }
   },
 
   /**
-   * Get real-time recent jobs queue with indexed pagination
+   * Get the real recent jobs queue (from processing_jobs, joined with users/results
+   * for display context) with indexed pagination.
    */
   async getRecentJobs(page: number = 1, limit: number = 20): Promise<{ jobs: AdminJobRecord[]; total: number }> {
     const safePage = Math.max(1, page);
@@ -344,86 +424,46 @@ export const adminService = {
     const offset = (safePage - 1) * safeLimit;
 
     try {
-      const rows = await query<any>(
-        `SELECT id, user_id, operation_type, status, created_at FROM processing_jobs ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-        [safeLimit, offset]
-      );
-      if (rows && rows.length > 0) {
-        const jobs = rows.map((r) => ({
+      const [rows, countRows] = await Promise.all([
+        query<any>(
+          `SELECT j.id, j.user_id, j.operation_type, j.status, j.created_at, j.input_files,
+                  u.email as user_email, u.phone as user_phone,
+                  r.file_size, r.processing_duration_ms
+           FROM processing_jobs j
+           LEFT JOIN users u ON u.id = j.user_id
+           LEFT JOIN processing_results r ON r.job_id = j.id
+           ORDER BY j.created_at DESC LIMIT ? OFFSET ?`,
+          [safeLimit, offset]
+        ),
+        query<{ count: number }>(`SELECT COUNT(*) as count FROM processing_jobs`),
+      ]);
+
+      const jobs: AdminJobRecord[] = rows.map((r) => {
+        let fileCount = 1;
+        try {
+          const inputFiles = typeof r.input_files === 'string' ? JSON.parse(r.input_files) : r.input_files;
+          if (Array.isArray(inputFiles) && inputFiles.length > 0) fileCount = inputFiles.length;
+        } catch {
+          // Keep default of 1
+        }
+        return {
           id: r.id,
           userId: r.user_id,
+          userEmail: r.user_email || r.user_phone || (r.user_id ? undefined : 'Anonymous Guest'),
           operationType: r.operation_type,
           status: r.status,
-          fileCount: 1,
-          fileSizeBytes: 4500000,
-          durationMs: 380,
+          fileCount,
+          fileSizeBytes: Number(r.file_size) || 0,
+          durationMs: Number(r.processing_duration_ms) || 0,
           createdAt: r.created_at || new Date().toISOString(),
-        }));
-        return { jobs, total: 50 };
-      }
-    } catch {
-      // Fallback
+        };
+      });
+
+      return { jobs, total: countRows[0]?.count || 0 };
+    } catch (err: any) {
+      console.warn('[Admin] getRecentJobs query failed — DB unavailable:', err?.message);
+      return { jobs: [], total: 0 };
     }
-
-    const defaultJobs: AdminJobRecord[] = [
-      {
-        id: `job_${Date.now()}_94a1`,
-        userId: 'usr_001',
-        userEmail: 'sarah.c@cyberdyne.org',
-        operationType: 'compress-pdf',
-        status: 'COMPLETED',
-        fileCount: 4,
-        fileSizeBytes: 18400000,
-        durationMs: 420,
-        createdAt: new Date(Date.now() - 1000 * 30).toISOString(),
-      },
-      {
-        id: `job_${Date.now() - 60000}_b21f`,
-        userId: 'usr_003',
-        userEmail: 'elena.rostova@fintech.de',
-        operationType: 'ocr-pdf',
-        status: 'COMPLETED',
-        fileCount: 1,
-        fileSizeBytes: 8200000,
-        durationMs: 1450,
-        createdAt: new Date(Date.now() - 1000 * 90).toISOString(),
-      },
-      {
-        id: `job_${Date.now() - 120000}_c7e3`,
-        userId: 'usr_002',
-        userEmail: 'david.miller@acme-corp.io',
-        operationType: 'organize-pdf',
-        status: 'COMPLETED',
-        fileCount: 1,
-        fileSizeBytes: 5600000,
-        durationMs: 290,
-        createdAt: new Date(Date.now() - 1000 * 180).toISOString(),
-      },
-      {
-        id: `job_${Date.now() - 180000}_d812`,
-        userId: null,
-        userEmail: 'Anonymous Guest',
-        operationType: 'merge-pdf',
-        status: 'COMPLETED',
-        fileCount: 3,
-        fileSizeBytes: 12300000,
-        durationMs: 310,
-        createdAt: new Date(Date.now() - 1000 * 240).toISOString(),
-      },
-      {
-        id: `job_${Date.now() - 240000}_e993`,
-        userId: 'usr_005',
-        userEmail: 'h.schmidt@berlin-tech.eu',
-        operationType: 'split-pdf',
-        status: 'COMPLETED',
-        fileCount: 1,
-        fileSizeBytes: 2800000,
-        durationMs: 180,
-        createdAt: new Date(Date.now() - 1000 * 310).toISOString(),
-      },
-    ];
-
-    return { jobs: defaultJobs, total: defaultJobs.length };
   },
 
   /**
@@ -569,20 +609,26 @@ export const adminService = {
   },
 
   /**
-   * Force purge all storage & reset metrics
+   * Force purge all storage & reset metrics. Counts and sums the real rows
+   * before deleting them, and records the totals into the persistent purge
+   * ledger so the dashboard's lifetime purge stats stay accurate.
    */
   async forcePurgeStorage(): Promise<{ success: boolean; purgedFiles: number; purgedBytes: number }> {
     try {
-      await query(`DELETE FROM processing_results`);
-    } catch {
-      // Fallback
-    }
+      const rows = await query<{ count: number; totalBytes: number }>(
+        `SELECT COUNT(*) as count, COALESCE(SUM(file_size), 0) as totalBytes FROM processing_results`
+      );
+      const purgedFiles = rows[0]?.count || 0;
+      const purgedBytes = Number(rows[0]?.totalBytes) || 0;
 
-    invalidateCache('admin_kpi_stats');
-    return {
-      success: true,
-      purgedFiles: 42,
-      purgedBytes: 184000000,
-    };
+      await query(`DELETE FROM processing_results`);
+      await recordManualPurge(purgedFiles, purgedBytes);
+      invalidateCache('admin_kpi_stats');
+
+      return { success: true, purgedFiles, purgedBytes };
+    } catch (err: any) {
+      console.warn('[Admin] forcePurgeStorage failed — DB unavailable:', err?.message);
+      return { success: false, purgedFiles: 0, purgedBytes: 0 };
+    }
   },
 };

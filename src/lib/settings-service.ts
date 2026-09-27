@@ -93,6 +93,11 @@ export const settingsService = {
           metaDescription: dbMap.metaDescription || DEFAULT_SETTINGS.metaDescription,
           copyrightText: dbMap.copyrightText || DEFAULT_SETTINGS.copyrightText,
           maintenanceMode: dbMap.maintenanceMode === 'true',
+          defaultRetentionPolicy:
+            (dbMap.defaultRetentionPolicy as SiteSettings['defaultRetentionPolicy']) ||
+            DEFAULT_SETTINGS.defaultRetentionPolicy,
+          autoPurgeEnabled:
+            dbMap.autoPurgeEnabled !== undefined ? dbMap.autoPurgeEnabled === 'true' : DEFAULT_SETTINGS.autoPurgeEnabled,
           updatedAt: dbMap.updatedAt || new Date().toISOString(),
         };
 

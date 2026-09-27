@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS users (
   phone VARCHAR(32) DEFAULT NULL UNIQUE,
   password_hash VARCHAR(255) DEFAULT NULL,
   full_name VARCHAR(150) NOT NULL,
+  role ENUM('USER', 'ADMIN') NOT NULL DEFAULT 'USER',
+  tier ENUM('ANONYMOUS', 'FREE', 'PRO', 'BUSINESS') NOT NULL DEFAULT 'FREE',
   plan_id VARCHAR(64) NOT NULL DEFAULT 'plan_free_001',
   status ENUM('active', 'suspended', 'pending') NOT NULL DEFAULT 'active',
   total_operations INT NOT NULL DEFAULT 0,
@@ -152,6 +154,21 @@ export async function runDatabaseMigrations(): Promise<{ success: boolean; messa
   try {
     for (const sql of statements) {
       await query(sql);
+    }
+
+    // Backward-compatible column additions for databases created before
+    // `role`/`tier` existed on `users` (CREATE TABLE IF NOT EXISTS won't
+    // retroactively add columns to an existing table).
+    const legacyColumnFixes = [
+      `ALTER TABLE users ADD COLUMN role ENUM('USER', 'ADMIN') NOT NULL DEFAULT 'USER' AFTER full_name`,
+      `ALTER TABLE users ADD COLUMN tier ENUM('ANONYMOUS', 'FREE', 'PRO', 'BUSINESS') NOT NULL DEFAULT 'FREE' AFTER role`,
+    ];
+    for (const sql of legacyColumnFixes) {
+      try {
+        await query(sql);
+      } catch {
+        // Column already exists — nothing to do
+      }
     }
 
     // Seed Default Plans if empty

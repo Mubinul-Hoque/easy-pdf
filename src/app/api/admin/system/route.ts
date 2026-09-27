@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminService } from '@/lib/admin-service';
 import { parseAdminSessionToken, ADMIN_CONFIG } from '@/lib/admin-auth';
-import { pool, query } from '@/lib/db';
+import { query, getPurgeLedger } from '@/lib/db';
 import { safeApiError, extractBearerToken } from '@/lib/api-security';
 
 export async function POST(req: NextRequest) {
@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
     // C. Get System Health Metrics
     if (action === 'health_check') {
       const memoryUsage = process.memoryUsage ? process.memoryUsage() : null;
+      const ledger = await getPurgeLedger();
       return NextResponse.json({
         success: true,
         nodeVersion: process.version,
@@ -58,6 +59,7 @@ export async function POST(req: NextRequest) {
               heapUsedMb: Math.round(memoryUsage.heapUsed / 1024 / 1024),
             }
           : null,
+        lastCleanupRunAt: ledger.lastCleanupRunAt,
       });
     }
 

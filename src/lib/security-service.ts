@@ -41,7 +41,7 @@ const DEFAULT_AUDIT_LOGS: SecurityAuditLog[] = [
   {
     id: 'log_001',
     eventType: 'LOGIN_SUCCESS',
-    actorEmail: 'mubinulhq@gmail.com',
+    actorEmail: 'admin@easypdf.com',
     ipAddress: '127.0.0.1',
     userAgent: 'Chrome 134 / Windows 11',
     details: { message: 'Authenticated via Admin Gateway' },
@@ -50,7 +50,7 @@ const DEFAULT_AUDIT_LOGS: SecurityAuditLog[] = [
   {
     id: 'log_002',
     eventType: 'STORAGE_PURGED',
-    actorEmail: 'mubinulhq@gmail.com',
+    actorEmail: 'admin@easypdf.com',
     ipAddress: '127.0.0.1',
     details: { purgedBytes: 184000000, message: 'Manual force purge executed' },
     createdAt: new Date(Date.now() - 1000 * 60 * 25).toISOString(),
@@ -66,7 +66,7 @@ const DEFAULT_AUDIT_LOGS: SecurityAuditLog[] = [
   {
     id: 'log_004',
     eventType: 'USER_SUSPENDED',
-    actorEmail: 'mubinulhq@gmail.com',
+    actorEmail: 'admin@easypdf.com',
     ipAddress: '127.0.0.1',
     details: { targetUser: 'suspicious_traffic_44@tempmail.co' },
     createdAt: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
@@ -78,14 +78,14 @@ const DEFAULT_BANNED_IPS: BannedIP[] = [
     id: 'ban_001',
     ipAddress: '194.26.29.114',
     reason: 'Automated brute-force crawl attempt',
-    bannedBy: 'Mubinul Houqe',
+    bannedBy: 'System Admin',
     createdAt: '2026-08-22T14:10:00Z',
   },
   {
     id: 'ban_002',
     ipAddress: '45.154.255.89',
     reason: 'Rate limit abuse / scraper bot',
-    bannedBy: 'Mubinul Houqe',
+    bannedBy: 'System Admin',
     createdAt: '2026-08-20T09:25:00Z',
   },
 ];
@@ -181,7 +181,7 @@ export const securityService = {
     return RUNTIME_BANNED_IPS;
   },
 
-  async banIP(ipAddress: string, reason: string, bannedBy: string = 'Mubinul Houqe'): Promise<BannedIP> {
+  async banIP(ipAddress: string, reason: string, bannedBy: string = 'System Admin'): Promise<BannedIP> {
     const id = `ban_${Date.now()}`;
     const entry: BannedIP = {
       id,

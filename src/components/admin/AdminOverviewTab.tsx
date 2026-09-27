@@ -208,48 +208,58 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
             <div className="flex items-center justify-between mb-5">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">7-Day Processing Volume</h3>
-                <p className="text-xs text-slate-500">Daily throughput across active worker nodes</p>
+                <p className="text-xs text-slate-500">Daily throughput from real completed jobs</p>
               </div>
-              <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-xl">
-                +18.4% this week
-              </span>
             </div>
 
             {/* Simple Volume Bar Chart */}
-            <div className="flex items-end justify-between gap-3 h-44 pt-6 pb-2 px-2">
-              {stats.dailyVolume.map((d, i) => {
-                const maxOps = Math.max(...stats.dailyVolume.map((v) => v.operations));
-                const heightPct = Math.round((d.operations / maxOps) * 100);
-                const isToday = d.date === 'Today';
+            {stats.dailyVolume.length === 0 ? (
+              <div className="flex items-center justify-center h-44 text-xs text-slate-400 font-semibold">
+                No processing activity recorded yet
+              </div>
+            ) : (
+              <div className="flex items-end justify-between gap-3 h-44 pt-6 pb-2 px-2">
+                {stats.dailyVolume.map((d, i) => {
+                  const maxOps = Math.max(...stats.dailyVolume.map((v) => v.operations), 1);
+                  const heightPct = Math.round((d.operations / maxOps) * 100);
+                  const isToday = d.date === 'Today';
 
-                return (
-                  <div key={i} className="flex-1 flex flex-col items-center gap-2 h-full justify-end group">
-                    <span className="text-[10px] font-bold text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {d.operations}
-                    </span>
-                    <div
-                      className={`w-full rounded-t-xl transition-all duration-300 group-hover:brightness-110 ${
-                        isToday ? 'bg-indigo-600 shadow-md shadow-indigo-500/30' : 'bg-slate-200 hover:bg-indigo-300'
-                      }`}
-                      style={{ height: `${heightPct}%` }}
-                    />
-                    <span className={`text-[11px] font-bold ${isToday ? 'text-indigo-600' : 'text-slate-500'}`}>
-                      {d.date}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+                  return (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-2 h-full justify-end group">
+                      <span className="text-[10px] font-bold text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {d.operations}
+                      </span>
+                      <div
+                        className={`w-full rounded-t-xl transition-all duration-300 group-hover:brightness-110 ${
+                          isToday ? 'bg-indigo-600 shadow-md shadow-indigo-500/30' : 'bg-slate-200 hover:bg-indigo-300'
+                        }`}
+                        style={{ height: `${Math.max(heightPct, 2)}%` }}
+                      />
+                      <span className={`text-[11px] font-bold ${isToday ? 'text-indigo-600' : 'text-slate-500'}`}>
+                        {d.date}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div className="pt-4 border-t border-slate-100 grid grid-cols-2 gap-4 text-center">
             <div>
               <p className="text-[10px] text-slate-400 uppercase font-bold">Avg Daily Throughput</p>
-              <p className="text-base font-black text-slate-800">1,218 Jobs</p>
+              <p className="text-base font-black text-slate-800">
+                {stats.dailyVolume.length > 0
+                  ? Math.round(
+                      stats.dailyVolume.reduce((sum, d) => sum + d.operations, 0) / stats.dailyVolume.length
+                    ).toLocaleString()
+                  : 0}{' '}
+                Jobs
+              </p>
             </div>
             <div>
-              <p className="text-[10px] text-slate-400 uppercase font-bold">Peak Concurrency</p>
-              <p className="text-base font-black text-slate-800">42 / sec</p>
+              <p className="text-[10px] text-slate-400 uppercase font-bold">Active Right Now</p>
+              <p className="text-base font-black text-slate-800">{stats.activeJobsCount} Jobs</p>
             </div>
           </div>
         </div>

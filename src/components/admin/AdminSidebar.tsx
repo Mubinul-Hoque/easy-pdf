@@ -162,11 +162,11 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
           <div className="flex items-center justify-between rounded-xl bg-slate-800/40 p-2.5 border border-slate-800/80">
             <div className="flex items-center gap-2.5">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-950 text-indigo-400 font-bold text-xs border border-indigo-800">
-                {user?.name ? user.name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase() : 'MH'}
+                {user?.name ? user.name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase() : 'AD'}
               </div>
               <div className="overflow-hidden">
-                <p className="text-xs font-bold text-white truncate">{user?.name || 'Mubinul Houqe'}</p>
-                <p className="text-[10px] text-slate-400 truncate">{user?.email || 'mubinulhq@gmail.com'}</p>
+                <p className="text-xs font-bold text-white truncate">{user?.name || 'Administrator'}</p>
+                <p className="text-[10px] text-slate-400 truncate">{user?.email || 'admin@easypdf.com'}</p>
               </div>
             </div>
 

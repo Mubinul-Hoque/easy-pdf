@@ -7,6 +7,7 @@ import { PDFPreviewFrame } from '@/components/PDFPreviewFrame';
 import { OCREngine, OCROptimizationPreset, OCRPageResult } from '@/lib/ocr-engine';
 import { JobProgress } from '@/lib/types';
 import { useToolConfig } from '@/context/ToolsContext';
+import { checkUsageQuota, trackUsageCompletion } from '@/lib/usage-client';
 import {
   Search,
   Sparkles,
@@ -70,7 +71,20 @@ export default function OCRPDFPage() {
   const handleOCR = async () => {
     if (!file) return;
 
+    const startedAt = Date.now();
+
     try {
+      const quota = await checkUsageQuota('ocr');
+      if (!quota.allowed) {
+        setProgress({
+          status: 'error',
+          percent: 0,
+          message: 'Daily limit reached',
+          error: quota.message || 'You have reached your daily operations limit.',
+        });
+        return;
+      }
+
       setProgress({
         status: 'processing',
         percent: 10,
@@ -118,6 +132,13 @@ export default function OCRPDFPage() {
         ocrResults,
         outputName
       );
+
+      trackUsageCompletion({
+        action: 'ocr',
+        files: [{ name: file.name, size: file.size }],
+        durationMs: Date.now() - startedAt,
+        pageCount,
+      });
 
       setProgress({
         status: 'completed',

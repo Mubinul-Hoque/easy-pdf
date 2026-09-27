@@ -294,7 +294,7 @@ export const AuthModal: React.FC = () => {
                     placeholder={
                       activeTab === 'phone'
                         ? '+1 234 567 8900 or 01712345678'
-                        : 'you@example.com'
+                        : 'example@email.com'
                     }
                     className="w-full rounded-xl border border-slate-300 pl-10 pr-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-600 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
                   />

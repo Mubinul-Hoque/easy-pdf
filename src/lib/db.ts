@@ -48,7 +48,7 @@ export const DEFAULT_PLANS: Plan[] = [
     id: 'plan_biz_003',
     name: 'Business Plan',
     slug: 'business',
-    description: 'Enterprise team collaboration with massive limits, REST API, and VIP queue',
+    description: 'Enterprise team collaboration with massive limits and batch processing',
     price_monthly: 29,
     price_yearly: 278.4,
     max_file_size_bytes: 1073741824,
@@ -404,8 +404,8 @@ export const dbService = {
   async cleanupExpiredFiles() {
     try {
       // 1. Delete results past their retention expiration timestamp
-      const expiredResults = await query<{ storage_key: string; job_id: string }>(
-        `SELECT storage_key, job_id FROM processing_results WHERE expires_at < NOW()`
+      const expiredResults = await query<{ storage_key: string; job_id: string; file_size: number }>(
+        `SELECT storage_key, job_id, file_size FROM processing_results WHERE expires_at < NOW()`
       );
 
       await query(
@@ -414,19 +414,121 @@ export const dbService = {
 
       // 2. Mark abandoned jobs older than 2 hours that are not actively processing
       await query(
-        `UPDATE processing_jobs 
+        `UPDATE processing_jobs
          SET status = 'FAILED', parameters = JSON_SET(COALESCE(parameters, '{}'), '$.abandoned', true)
          WHERE status = 'QUEUED' AND created_at < DATE_SUB(NOW(), INTERVAL 2 HOUR)`
       );
 
+      const purgedBytes = expiredResults.reduce((sum, r) => sum + (Number(r.file_size) || 0), 0);
+      await recordCleanupRun(expiredResults.length, purgedBytes);
+
       return {
         success: true,
         purgedCount: expiredResults.length,
+        purgedBytes,
         timestamp: new Date().toISOString(),
       };
     } catch (err: any) {
       console.warn('Expired files cleanup notice:', err.message);
-      return { success: true, purgedCount: 0, error: err.message };
+      return { success: true, purgedCount: 0, purgedBytes: 0, error: err.message };
+    }
+  },
+
+  // 10. Fetch a user's usage counters for the current day (against their plan's daily quota)
+  async getUsageToday(userId: string): Promise<{ operations_count: number; ocr_pages_count: number; total_bytes_processed: number }> {
+    const empty = { operations_count: 0, ocr_pages_count: 0, total_bytes_processed: 0 };
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const rows = await query<{ operations_count: number; ocr_pages_count: number; total_bytes_processed: number }>(
+        `SELECT operations_count, ocr_pages_count, total_bytes_processed FROM usage_limits WHERE user_id = ? AND period_date = ? LIMIT 1`,
+        [userId, today]
+      );
+      return rows.length > 0 ? rows[0] : empty;
+    } catch {
+      return empty;
     }
   },
 };
+
+// --------------------------------------------------------------------------
+// Persistent operational ledger (survives restarts, unlike in-memory counters).
+// Tracks cumulative purge activity and the last cleanup-run timestamp so the
+// admin panel can report real numbers instead of hardcoded placeholders.
+// --------------------------------------------------------------------------
+export interface PurgeLedger {
+  totalFilesPurged: number;
+  totalBytesPurged: number;
+  lastCleanupRunAt: string | null;
+}
+
+let purgeLedgerTableEnsured = false;
+async function ensurePurgeLedgerTable(): Promise<void> {
+  if (purgeLedgerTableEnsured) return;
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS system_settings (
+        setting_key VARCHAR(100) PRIMARY KEY,
+        setting_value TEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    purgeLedgerTableEnsured = true;
+  } catch {
+    // DB offline — ledger falls back to in-memory defaults
+  }
+}
+
+const PURGE_LEDGER_KEY = 'purge_ledger';
+
+declare global {
+  var __easypdf_purge_ledger: PurgeLedger | undefined;
+}
+
+let cachedLedger: PurgeLedger =
+  globalThis.__easypdf_purge_ledger || { totalFilesPurged: 0, totalBytesPurged: 0, lastCleanupRunAt: null };
+globalThis.__easypdf_purge_ledger = cachedLedger;
+
+export async function getPurgeLedger(): Promise<PurgeLedger> {
+  try {
+    await ensurePurgeLedgerTable();
+    const rows = await query<{ setting_value: string }>(
+      `SELECT setting_value FROM system_settings WHERE setting_key = ? LIMIT 1`,
+      [PURGE_LEDGER_KEY]
+    );
+    if (rows.length > 0) {
+      const parsed = JSON.parse(rows[0].setting_value);
+      cachedLedger = { ...cachedLedger, ...parsed };
+      globalThis.__easypdf_purge_ledger = cachedLedger;
+      return cachedLedger;
+    }
+  } catch {
+    // Fallback to cached/default
+  }
+  return cachedLedger;
+}
+
+async function recordCleanupRun(filesPurged: number, bytesPurged: number): Promise<void> {
+  const current = await getPurgeLedger();
+  const updated: PurgeLedger = {
+    totalFilesPurged: current.totalFilesPurged + filesPurged,
+    totalBytesPurged: current.totalBytesPurged + bytesPurged,
+    lastCleanupRunAt: new Date().toISOString(),
+  };
+  cachedLedger = updated;
+  globalThis.__easypdf_purge_ledger = cachedLedger;
+  try {
+    await ensurePurgeLedgerTable();
+    await query(
+      `INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = CURRENT_TIMESTAMP`,
+      [PURGE_LEDGER_KEY, JSON.stringify(updated)]
+    );
+  } catch {
+    // Ledger stays accurate in-memory for this process even if the write fails
+  }
+}
+
+/** Records a manual (admin-triggered) purge into the same persistent ledger as the auto-cleanup cron. */
+export async function recordManualPurge(filesPurged: number, bytesPurged: number): Promise<void> {
+  await recordCleanupRun(filesPurged, bytesPurged);
+}

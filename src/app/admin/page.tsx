@@ -195,6 +195,8 @@ export default function AdminDashboardPage() {
               stats={stats}
               onPurgeStorage={handlePurgeStorage}
               isPurging={purging}
+              token={token}
+              onNotification={showNotification}
             />
           )}
 

@@ -21,6 +21,7 @@ import {
 } from '@/lib/download-manager';
 import { formatBytes } from '@/lib/format-utils';
 import { BackgroundTaskManager } from '@/lib/background-task-manager';
+import { useSettings } from '@/context/SettingsContext';
 
 interface ProcessingModalProps {
   progress: JobProgress;
@@ -35,6 +36,7 @@ const ProcessingModalComponent: React.FC<ProcessingModalProps> = ({
   title = 'Processing Document',
   onDownloadComplete,
 }) => {
+  const { settings } = useSettings();
   const [downloadStatus, setDownloadStatus] = useState<
     'idle' | 'downloading' | 'completed' | 'failed'
   >('idle');
@@ -99,11 +101,14 @@ const ProcessingModalComponent: React.FC<ProcessingModalProps> = ({
           if (success) {
             setDownloadStatus('completed');
             // Delete source and generated files from server storage only after download completes
-            await requestServerFileCleanup({
-              jobId: result.jobId,
-              fileIds: result.fileIds,
-            });
-            setStorageCleaned(true);
+            // (admin-configurable via Files & Retention > Immediate Post-Download Wipe)
+            if (settings.autoPurgeEnabled) {
+              await requestServerFileCleanup({
+                jobId: result.jobId,
+                fileIds: result.fileIds,
+              });
+              setStorageCleaned(true);
+            }
             onDownloadComplete?.(result);
           } else {
             setDownloadStatus('failed');
@@ -236,10 +241,12 @@ const ProcessingModalComponent: React.FC<ProcessingModalProps> = ({
               download={progress.result.fileName}
               onClick={() => {
                 // Secondary backup cleanup request
-                requestServerFileCleanup({
-                  jobId: progress.result?.jobId,
-                  fileIds: progress.result?.fileIds,
-                });
+                if (settings.autoPurgeEnabled) {
+                  requestServerFileCleanup({
+                    jobId: progress.result?.jobId,
+                    fileIds: progress.result?.fileIds,
+                  });
+                }
               }}
               className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 py-3 px-6 text-xs font-bold transition-all duration-200 mb-2 border border-slate-200"
             >

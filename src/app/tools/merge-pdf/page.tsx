@@ -8,6 +8,7 @@ import { PDFPreviewModal } from '@/components/PDFPreviewModal';
 import { PDFEngine } from '@/lib/pdf-engine';
 import { JobProgress } from '@/lib/types';
 import { useToolConfig } from '@/context/ToolsContext';
+import { checkUsageQuota, trackUsageCompletion } from '@/lib/usage-client';
 import { Layers, Trash2, ArrowUp, ArrowDown, Plus, Sparkles, FileText, Eye, CheckCircle2, AlertCircle, Wrench } from 'lucide-react';
 
 export default function MergePDFPage() {
@@ -77,7 +78,20 @@ export default function MergePDFPage() {
   const handleMerge = async () => {
     if (files.length < 2) return;
 
+    const startedAt = Date.now();
+
     try {
+      const quota = await checkUsageQuota('merge');
+      if (!quota.allowed) {
+        setProgress({
+          status: 'error',
+          percent: 0,
+          message: 'Daily limit reached',
+          error: quota.message || 'You have reached your daily operations limit.',
+        });
+        return;
+      }
+
       setProgress({
         status: 'processing',
         percent: 25,
@@ -101,6 +115,12 @@ export default function MergePDFPage() {
       });
 
       const result = await PDFEngine.mergePDFs(buffers, 'merged_document.pdf');
+
+      trackUsageCompletion({
+        action: 'merge',
+        files: files.map((f) => ({ name: f.name, size: f.size })),
+        durationMs: Date.now() - startedAt,
+      });
 
       setProgress({
         status: 'completed',
