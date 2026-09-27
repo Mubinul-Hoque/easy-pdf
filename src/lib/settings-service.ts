@@ -98,6 +98,14 @@ export const settingsService = {
             DEFAULT_SETTINGS.defaultRetentionPolicy,
           autoPurgeEnabled:
             dbMap.autoPurgeEnabled !== undefined ? dbMap.autoPurgeEnabled === 'true' : DEFAULT_SETTINGS.autoPurgeEnabled,
+          emailVerificationEnabled:
+            dbMap.emailVerificationEnabled !== undefined
+              ? dbMap.emailVerificationEnabled === 'true'
+              : DEFAULT_SETTINGS.emailVerificationEnabled,
+          phoneVerificationEnabled:
+            dbMap.phoneVerificationEnabled !== undefined
+              ? dbMap.phoneVerificationEnabled === 'true'
+              : DEFAULT_SETTINGS.phoneVerificationEnabled,
           updatedAt: dbMap.updatedAt || new Date().toISOString(),
         };
 

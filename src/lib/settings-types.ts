@@ -16,6 +16,11 @@ export interface SiteSettings {
   // (authenticated users still get their plan's own retention window).
   defaultRetentionPolicy: RetentionPolicy;
   autoPurgeEnabled: boolean;
+  // Whether the Email / Phone tabs are offered at all on registration & login.
+  // Turning a channel off hides it from the UI and rejects OTP requests for it,
+  // independent of whether its delivery provider (Resend/Twilio) is configured.
+  emailVerificationEnabled: boolean;
+  phoneVerificationEnabled: boolean;
   updatedAt?: string;
 }
 
@@ -40,4 +45,6 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   maintenanceMode: false,
   defaultRetentionPolicy: '1_hour',
   autoPurgeEnabled: true,
+  emailVerificationEnabled: true,
+  phoneVerificationEnabled: true,
 };

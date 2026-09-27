@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
           success: false,
           error: {
             code: 'INVALID_FORMAT',
-            message: `Please enter a valid ${channel === 'email' ? 'email address' : 'mobile phone number (e.g. +1234567890 or 017xxxxxxxx)'}.`,
+            message: `Please enter a valid ${channel === 'email' ? 'email address' : 'mobile phone number, including your country code (e.g. +8801712345678)'}.`,
           },
         },
         { status: 400 }
@@ -81,16 +81,21 @@ export async function POST(req: NextRequest) {
     const result = await otpService.sendOtp(identifier, type);
 
     if (!result.success) {
+      const statusByCode: Record<string, number> = {
+        COOLDOWN_ACTIVE: 429,
+        CHANNEL_DISABLED: 403,
+        DELIVERY_FAILED: 503,
+      };
       return NextResponse.json(
         {
           success: false,
           error: {
-            code: 'COOLDOWN_ACTIVE',
+            code: result.code || 'SEND_FAILED',
             message: result.message,
             cooldownRemainingSeconds: result.cooldownRemainingSeconds,
           },
         },
-        { status: 429 }
+        { status: statusByCode[result.code || ''] || 400 }
       );
     }
 

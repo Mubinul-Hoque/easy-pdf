@@ -4,7 +4,9 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
+import { useSettings } from '@/context/SettingsContext';
 import { OtpInput } from '@/components/auth/OtpInput';
+import { PhoneNumberInput } from '@/components/auth/PhoneNumberInput';
 import {
   Smartphone,
   Mail,
@@ -22,10 +24,15 @@ import {
 export default function LoginPage() {
   const router = useRouter();
   const { user, sendOtp, verifyOtp } = useAuth();
+  const { settings } = useSettings();
+  const emailEnabled = settings.emailVerificationEnabled;
+  const phoneEnabled = settings.phoneVerificationEnabled;
+  const bothChannelsEnabled = emailEnabled && phoneEnabled;
 
   const [activeTab, setActiveTab] = useState<'phone' | 'email'>('phone');
   const [step, setStep] = useState<'input' | 'otp'>('input');
   const [identifier, setIdentifier] = useState('');
+  const [phoneValid, setPhoneValid] = useState(false);
   const [otp, setOtp] = useState('');
 
   const [loading, setLoading] = useState(false);
@@ -39,6 +46,12 @@ export default function LoginPage() {
       router.push('/');
     }
   }, [user, router]);
+
+  // Steer away from a channel the admin has disabled
+  useEffect(() => {
+    if (activeTab === 'phone' && !phoneEnabled && emailEnabled) setActiveTab('email');
+    else if (activeTab === 'email' && !emailEnabled && phoneEnabled) setActiveTab('phone');
+  }, [activeTab, phoneEnabled, emailEnabled]);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
@@ -60,6 +73,11 @@ export default function LoginPage() {
           ? 'Please enter your mobile phone number.'
           : 'Please enter your email address.'
       );
+      return;
+    }
+
+    if (activeTab === 'phone' && !phoneValid) {
+      setError('Please enter a valid mobile number for the selected country.');
       return;
     }
 
@@ -152,7 +170,25 @@ export default function LoginPage() {
         <div className="relative overflow-hidden rounded-3xl border border-slate-200/80 bg-white p-6 sm:p-8 shadow-xl">
           <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600" />
 
-          {step === 'input' ? (
+          {step === 'input' && !emailEnabled && !phoneEnabled ? (
+            <div className="text-center py-6">
+              <Link href="/" className="inline-flex items-center gap-2 mb-4 group justify-center">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white shadow-md shadow-indigo-500/20 group-hover:scale-105 transition-transform duration-200">
+                  <Layers className="h-5 w-5" />
+                </div>
+                <span className="text-xl font-bold tracking-tight text-slate-900">
+                  Easy<span className="text-indigo-600">PDF</span>
+                </span>
+              </Link>
+              <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-600 mb-3 shadow-inner">
+                <AlertCircle className="h-6 w-6" />
+              </div>
+              <h1 className="text-xl font-bold tracking-tight text-slate-900">Sign-in is temporarily unavailable</h1>
+              <p className="text-sm text-slate-500 mt-2">
+                Both email and phone verification have been disabled by the administrator. Please check back later.
+              </p>
+            </div>
+          ) : step === 'input' ? (
             <div>
               <div className="text-center mb-6">
                 <Link href="/" className="inline-flex items-center gap-2 mb-4 group">
@@ -171,12 +207,14 @@ export default function LoginPage() {
                 </p>
               </div>
 
+              {bothChannelsEnabled && (
               <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-100 mb-5">
                 <button
                   type="button"
                   onClick={() => {
                     setActiveTab('phone');
                     setIdentifier('');
+                    setPhoneValid(false);
                     setError(null);
                   }}
                   className={`flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
@@ -205,6 +243,7 @@ export default function LoginPage() {
                   Email Address
                 </button>
               </div>
+              )}
 
               {error && (
                 <div className="mb-4 flex items-start gap-2.5 rounded-xl bg-rose-50 border border-rose-200 p-3 text-sm text-rose-800 animate-in fade-in">
@@ -218,27 +257,29 @@ export default function LoginPage() {
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
                     {activeTab === 'phone' ? 'Mobile Phone Number' : 'Email Address'}
                   </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                      {activeTab === 'phone' ? (
-                        <Smartphone className="h-4 w-4 text-indigo-500" />
-                      ) : (
-                        <Mail className="h-4 w-4 text-indigo-500" />
-                      )}
-                    </div>
-                    <input
-                      type={activeTab === 'phone' ? 'tel' : 'email'}
-                      required
-                      value={identifier}
-                      onChange={(e) => setIdentifier(e.target.value)}
-                      placeholder={
-                        activeTab === 'phone'
-                          ? '+1 234 567 8900 or 01712345678'
-                          : 'example@email.com'
-                      }
-                      className="w-full rounded-xl border border-slate-300 pl-10 pr-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-600 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
+                  {activeTab === 'phone' ? (
+                    <PhoneNumberInput
+                      onChange={(e164, valid) => {
+                        setIdentifier(e164);
+                        setPhoneValid(valid);
+                      }}
+                      disabled={loading}
                     />
-                  </div>
+                  ) : (
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                        <Mail className="h-4 w-4 text-indigo-500" />
+                      </div>
+                      <input
+                        type="email"
+                        required
+                        value={identifier}
+                        onChange={(e) => setIdentifier(e.target.value)}
+                        placeholder="example@email.com"
+                        className="w-full rounded-xl border border-slate-300 pl-10 pr-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-600 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <button

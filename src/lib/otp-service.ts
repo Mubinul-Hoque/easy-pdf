@@ -1,5 +1,8 @@
 import { query } from './db';
 import crypto from 'crypto';
+import { parsePhoneNumberFromString } from 'libphonenumber-js/mobile';
+import { resolveTwilioCredentials } from './notification-settings';
+import { settingsService } from './settings-service';
 
 export type OtpChannel = 'email' | 'phone';
 export type OtpType = 'register' | 'login' | 'reset_password';
@@ -68,16 +71,22 @@ export function normalizeIdentifier(raw: string): { identifier: string; channel:
     };
   }
 
-  // Clean phone number: remove spaces, dashes, parentheses
+  // Clean phone number: remove spaces, dashes, parentheses.
+  // The frontend always submits a full E.164 number (e.g. "+8801712345678");
+  // re-parsing here normalizes it to a canonical form regardless of caller,
+  // and is the server-side source of truth — client validation is never trusted alone.
   const digitsAndPlus = trimmed.replace(/[^\d+]/g, '');
+  const parsed = parsePhoneNumberFromString(digitsAndPlus);
   return {
-    identifier: digitsAndPlus,
+    identifier: parsed?.number || digitsAndPlus,
     channel: 'phone',
   };
 }
 
 /**
- * Validates format of email or phone number
+ * Validates format of email or phone number. Phone numbers are validated
+ * against real per-country numbering rules (length, prefixes, mobile vs.
+ * landline patterns) via libphonenumber-js, not just a loose digit-count regex.
  */
 export function isValidIdentifier(raw: string): boolean {
   const { identifier, channel } = normalizeIdentifier(raw);
@@ -89,9 +98,8 @@ export function isValidIdentifier(raw: string): boolean {
   }
 
   if (channel === 'phone') {
-    // Standard phone format: 6 to 20 digits, optional leading '+'
-    const phoneRegex = /^\+?[0-9]{6,20}$/;
-    return phoneRegex.test(identifier);
+    const parsed = parsePhoneNumberFromString(identifier);
+    return parsed?.isValid() || false;
   }
 
   return false;
@@ -116,6 +124,19 @@ export const otpService = {
       throw new Error(`Invalid ${channel === 'email' ? 'email address' : 'mobile phone number'} format`);
     }
 
+    // Respect the admin's channel on/off switch (Branding & Settings) before
+    // doing anything else — a disabled channel is rejected regardless of
+    // whether its delivery provider happens to be configured.
+    const siteSettings = await settingsService.getSettings();
+    const channelEnabled = channel === 'email' ? siteSettings.emailVerificationEnabled : siteSettings.phoneVerificationEnabled;
+    if (!channelEnabled) {
+      return {
+        success: false,
+        code: 'CHANNEL_DISABLED' as const,
+        message: `${channel === 'email' ? 'Email' : 'Phone'} verification is currently disabled by the administrator.`,
+      };
+    }
+
     await ensureOtpTable();
     const now = Date.now();
 
@@ -125,6 +146,7 @@ export const otpService = {
       const waitRemaining = Math.ceil((COOLDOWN_MS - (now - existing.createdAt)) / 1000);
       return {
         success: false,
+        code: 'COOLDOWN_ACTIVE' as const,
         cooldownRemainingSeconds: waitRemaining,
         message: `Please wait ${waitRemaining}s before requesting a new verification code.`,
       };
@@ -162,8 +184,8 @@ export const otpService = {
       console.warn('[OTP DB Notice] Storing in resilient global memory cache:', err.message);
     }
 
-    // 3. Dispatch OTP via Channel (Email / SMS simulation)
-    await this.dispatchOtpNotification({
+    // 3. Dispatch OTP via Channel (Email / SMS)
+    const dispatchResult = await this.dispatchOtpNotification({
       identifier,
       channel,
       otpCode,
@@ -171,6 +193,22 @@ export const otpService = {
     });
 
     const cooldownSec = process.env.NODE_ENV === 'production' ? 60 : 5;
+
+    // In production, never claim success unless a real provider actually
+    // delivered the message — the code was already generated/stored above,
+    // but a fake "sent!" response just leaves the user waiting for nothing.
+    // In development, console-log delivery + demoOtp is an accepted stand-in.
+    if (process.env.NODE_ENV === 'production' && !dispatchResult.delivered) {
+      console.error(`[OTP Delivery Failed] channel=${channel} identifier=${identifier} reason=${dispatchResult.error}`);
+      return {
+        success: false,
+        code: 'DELIVERY_FAILED' as const,
+        message:
+          channel === 'phone'
+            ? 'SMS delivery is not currently configured for this app. Please contact support.'
+            : 'Email delivery is not currently configured for this app. Please contact support.',
+      };
+    }
 
     return {
       success: true,
@@ -300,14 +338,17 @@ export const otpService = {
   },
 
   /**
-   * Internal helper: Dispatches notification via SMS gateway or SMTP/Email
+   * Internal helper: Dispatches notification via SMS gateway or SMTP/Email.
+   * Returns whether a REAL delivery channel actually sent the message —
+   * console logging alone never counts as delivered. Callers must not report
+   * success to the end user unless this is honest about that.
    */
   async dispatchOtpNotification(payload: {
     identifier: string;
     channel: OtpChannel;
     otpCode: string;
     type: OtpType;
-  }) {
+  }): Promise<{ delivered: boolean; error?: string }> {
     const actionText =
       payload.type === 'register'
         ? 'registration'
@@ -316,43 +357,93 @@ export const otpService = {
         : 'verification';
 
     const message = `[EasyPDF] Your 4-digit ${actionText} code is: ${payload.otpCode}. Valid for 10 minutes. Do not share this code.`;
+    let delivered = false;
+    let error: string | undefined;
 
-    // 1. If Twilio SMS credentials exist, send live SMS
-    if (
-      payload.channel === 'phone' &&
-      process.env.TWILIO_ACCOUNT_SID &&
-      process.env.TWILIO_AUTH_TOKEN &&
-      process.env.TWILIO_PHONE_NUMBER
-    ) {
-      try {
-        const accountSid = process.env.TWILIO_ACCOUNT_SID;
-        const authToken = process.env.TWILIO_AUTH_TOKEN;
-        const fromNumber = process.env.TWILIO_PHONE_NUMBER;
+    if (payload.channel === 'phone') {
+      // Admin-panel-configured credentials take priority; TWILIO_* env vars are the fallback.
+      const twilio = await resolveTwilioCredentials();
 
-        const params = new URLSearchParams();
-        params.append('To', payload.identifier);
-        params.append('From', fromNumber);
-        params.append('Body', message);
+      if (twilio.accountSid && twilio.authToken && twilio.phoneNumber) {
+        try {
+          const params = new URLSearchParams();
+          params.append('To', payload.identifier);
+          params.append('From', twilio.phoneNumber);
+          params.append('Body', message);
 
-        const twilioRes = await fetch(
-          `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
-          {
+          const twilioRes = await fetch(
+            `https://api.twilio.com/2010-04-01/Accounts/${twilio.accountSid}/Messages.json`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization: 'Basic ' + Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString('base64'),
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: params.toString(),
+            }
+          );
+          const twilioData = await twilioRes.json();
+          if (twilioRes.ok) {
+            delivered = true;
+            console.log('📱 [Twilio SMS Sent]:', twilioData.sid);
+          } else {
+            // Common causes: destination country not geo-permitted on this
+            // Twilio account, invalid/unverified From number, insufficient balance.
+            error = twilioData.message || 'SMS provider rejected the message.';
+            console.error('❌ [Twilio SMS Delivery Error]:', error);
+          }
+        } catch (smsErr: any) {
+          error = smsErr.message || 'SMS provider request failed.';
+          console.error('❌ [Twilio SMS Delivery Error]:', error);
+        }
+      } else {
+        error = 'No SMS provider is configured. Set Twilio credentials in the admin panel (Branding & Settings) or via TWILIO_* environment variables.';
+      }
+    } else {
+      // Real email delivery via Resend (https://resend.com). Falls back to
+      // console-log-only if RESEND_API_KEY isn't set.
+      if (process.env.RESEND_API_KEY) {
+        try {
+          const fromAddress = process.env.EMAIL_FROM || 'EasyPDF <onboarding@resend.dev>';
+          const emailRes = await fetch('https://api.resend.com/emails', {
             method: 'POST',
             headers: {
-              Authorization: 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
-              'Content-Type': 'application/x-www-form-urlencoded',
+              Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+              'Content-Type': 'application/json',
             },
-            body: params.toString(),
+            body: JSON.stringify({
+              from: fromAddress,
+              to: payload.identifier,
+              subject: `Your EasyPDF verification code: ${payload.otpCode}`,
+              html: `
+                <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+                  <h2 style="color: #1e293b;">EasyPDF Verification Code</h2>
+                  <p style="color: #475569;">Use the code below to complete your ${actionText}:</p>
+                  <p style="font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #4f46e5;">${payload.otpCode}</p>
+                  <p style="color: #94a3b8; font-size: 13px;">This code expires in 10 minutes. If you didn't request this, you can safely ignore this email.</p>
+                </div>
+              `,
+            }),
+          });
+          const emailData = await emailRes.json();
+          if (emailRes.ok) {
+            delivered = true;
+            console.log('📧 [Resend Email Sent]:', emailData.id);
+          } else {
+            // Common cause: sending domain in EMAIL_FROM isn't verified on the Resend account yet.
+            error = emailData.message || 'Email provider rejected the message.';
+            console.error('❌ [Resend Email Delivery Error]:', error);
           }
-        );
-        const twilioData = await twilioRes.json();
-        console.log('📱 [Twilio SMS Sent]:', twilioData.sid || twilioData.message);
-      } catch (smsErr: any) {
-        console.error('❌ [Twilio SMS Delivery Error]:', smsErr.message);
+        } catch (emailErr: any) {
+          error = emailErr.message || 'Email provider request failed.';
+          console.error('❌ [Resend Email Delivery Error]:', error);
+        }
+      } else {
+        error = 'No email provider is configured (RESEND_API_KEY environment variable).';
       }
     }
 
-    // 2. Log to Server Console for localhost / development
+    // 2. Always log to server console too — the only delivery path in local development
     if (payload.channel === 'phone') {
       console.log(`\n========================================`);
       console.log(`📱 [MOBILE OTP DISPATCH] To: ${payload.identifier}`);
@@ -366,5 +457,7 @@ export const otpService = {
       console.log(`🔑 4-Digit OTP Code: >>> ${payload.otpCode} <<<`);
       console.log(`========================================\n`);
     }
+
+    return { delivered, error };
   },
 };

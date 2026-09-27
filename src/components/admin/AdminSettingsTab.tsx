@@ -17,6 +17,9 @@ import {
   ExternalLink,
   Shield,
   Layers,
+  Smartphone,
+  MessageSquare,
+  Lock,
 } from 'lucide-react';
 import { SiteSettings, DEFAULT_SETTINGS } from '@/lib/settings-types';
 import { useSettings } from '@/context/SettingsContext';
@@ -52,6 +55,69 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
 
   const logoInputRef = useRef<HTMLInputElement>(null);
   const faviconInputRef = useRef<HTMLInputElement>(null);
+
+  // Twilio SMS credentials (separate store from SiteSettings — secrets are never
+  // sent back from the server in full, so this has its own fetch/save flow)
+  const [twilio, setTwilio] = useState<{
+    accountSid: string;
+    authTokenMasked: string;
+    phoneNumber: string;
+    isConfigured: boolean;
+    source: 'admin' | 'env' | 'none';
+  } | null>(null);
+  const [twilioForm, setTwilioForm] = useState({ accountSid: '', authToken: '', phoneNumber: '' });
+  const [savingTwilio, setSavingTwilio] = useState(false);
+
+  const fetchTwilioStatus = React.useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/notifications', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json();
+      if (data.success && data.twilio) {
+        setTwilio(data.twilio);
+        setTwilioForm({ accountSid: data.twilio.accountSid || '', authToken: '', phoneNumber: data.twilio.phoneNumber || '' });
+      }
+    } catch {
+      // Non-fatal — the rest of the settings tab still works
+    }
+  }, [token]);
+
+  useEffect(() => {
+    fetchTwilioStatus();
+  }, [fetchTwilioStatus]);
+
+  const handleSaveTwilio = async () => {
+    try {
+      setSavingTwilio(true);
+      const res = await fetch('/api/admin/notifications', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        // authToken is only sent if the admin actually typed a new one —
+        // otherwise the previously-stored secret is left untouched.
+        body: JSON.stringify({
+          accountSid: twilioForm.accountSid,
+          phoneNumber: twilioForm.phoneNumber,
+          ...(twilioForm.authToken ? { authToken: twilioForm.authToken } : {}),
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTwilio(data.twilio);
+        setTwilioForm((prev) => ({ ...prev, authToken: '' }));
+        if (onNotification) onNotification('Twilio SMS settings saved.');
+      } else {
+        setStatusMsg({ type: 'error', text: data.error?.message || 'Failed to save Twilio settings.' });
+      }
+    } catch (err: any) {
+      setStatusMsg({ type: 'error', text: err.message || 'Network error saving Twilio settings.' });
+    } finally {
+      setSavingTwilio(false);
+    }
+  };
 
   // Fetch Settings on Mount
   const fetchSettings = React.useCallback(async () => {
@@ -574,6 +640,157 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
               <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600" />
             </label>
           </div>
+        </div>
+      </div>
+
+      {/* SECTION 5: USER VERIFICATION CHANNELS */}
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+        <div className="flex items-center gap-2.5 pb-4 border-b border-slate-100">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+            <Smartphone className="h-5 w-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">User Verification Channels</h3>
+            <p className="text-xs text-slate-500">Show or hide the Email / Phone options on the registration &amp; login forms</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-200 bg-slate-50">
+            <div className="flex items-center gap-2.5">
+              <Mail className="h-4 w-4 text-indigo-500 shrink-0" />
+              <div>
+                <span className="text-xs font-bold text-slate-900 block">Email Verification</span>
+                <span className="text-[11px] text-slate-500">Allow sign-up / sign-in via email OTP</span>
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={settings.emailVerificationEnabled}
+                onChange={(e) => handleChange('emailVerificationEnabled', e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600" />
+            </label>
+          </div>
+
+          <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-200 bg-slate-50">
+            <div className="flex items-center gap-2.5">
+              <Smartphone className="h-4 w-4 text-indigo-500 shrink-0" />
+              <div>
+                <span className="text-xs font-bold text-slate-900 block">Phone (SMS) Verification</span>
+                <span className="text-[11px] text-slate-500">Allow sign-up / sign-in via SMS OTP</span>
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={settings.phoneVerificationEnabled}
+                onChange={(e) => handleChange('phoneVerificationEnabled', e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600" />
+            </label>
+          </div>
+        </div>
+
+        {!settings.emailVerificationEnabled && !settings.phoneVerificationEnabled && (
+          <div className="flex items-start gap-2.5 rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
+            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+            <span>With both channels off, nobody can register or sign in on the public site — only this admin panel stays reachable.</span>
+          </div>
+        )}
+
+        <p className="text-[11px] text-slate-400">
+          This only controls whether a channel is offered. Whether it actually works also depends on the delivery
+          provider configured below (SMS) or via <code className="font-mono">RESEND_API_KEY</code> (email).
+        </p>
+      </div>
+
+      {/* SECTION 6: TWILIO SMS DELIVERY */}
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
+              <MessageSquare className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">Twilio SMS Delivery</h3>
+              <p className="text-xs text-slate-500">Credentials used to send real verification texts</p>
+            </div>
+          </div>
+          {twilio && (
+            <span
+              className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${
+                twilio.isConfigured
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : 'bg-slate-100 text-slate-500 border-slate-200'
+              }`}
+            >
+              {twilio.isConfigured ? `Configured (${twilio.source === 'admin' ? 'admin panel' : 'env vars'})` : 'Not configured'}
+            </span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="text-xs font-bold text-slate-700">Account SID</label>
+            <input
+              type="text"
+              value={twilioForm.accountSid}
+              onChange={(e) => setTwilioForm((prev) => ({ ...prev, accountSid: e.target.value }))}
+              placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs font-mono text-slate-900 outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/20"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
+              <Lock className="h-3 w-3 text-slate-400" /> Auth Token
+            </label>
+            <input
+              type="password"
+              value={twilioForm.authToken}
+              onChange={(e) => setTwilioForm((prev) => ({ ...prev, authToken: e.target.value }))}
+              placeholder={twilio?.authTokenMasked || 'Enter to set/replace'}
+              autoComplete="off"
+              className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs font-mono text-slate-900 outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/20"
+            />
+            <p className="text-[10px] text-slate-400 mt-1">Leave blank to keep the currently saved token.</p>
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-slate-700">Twilio Phone Number</label>
+            <input
+              type="text"
+              value={twilioForm.phoneNumber}
+              onChange={(e) => setTwilioForm((prev) => ({ ...prev, phoneNumber: e.target.value }))}
+              placeholder="+15017122661"
+              className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs font-mono text-slate-900 outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/20"
+            />
+          </div>
+        </div>
+
+        <p className="text-[11px] text-slate-400 leading-relaxed">
+          Get these from your{' '}
+          <a href="https://console.twilio.com" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">
+            Twilio Console
+          </a>
+          . New Twilio accounts often need specific countries enabled under Geo Permissions before SMS to those
+          numbers will succeed.
+        </p>
+
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={handleSaveTwilio}
+            disabled={savingTwilio}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-rose-600/25 hover:bg-rose-700 transition-all disabled:opacity-50 cursor-pointer"
+          >
+            {savingTwilio ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {savingTwilio ? 'Saving...' : 'Save Twilio Settings'}
+          </button>
         </div>
       </div>
 

@@ -2,7 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { useSettings } from '@/context/SettingsContext';
 import { OtpInput } from './OtpInput';
+import { PhoneNumberInput } from './PhoneNumberInput';
 import {
   X,
   Smartphone,
@@ -25,12 +27,17 @@ export const AuthModal: React.FC = () => {
     sendOtp,
     verifyOtp,
   } = useAuth();
+  const { settings } = useSettings();
+  const emailEnabled = settings.emailVerificationEnabled;
+  const phoneEnabled = settings.phoneVerificationEnabled;
+  const bothChannelsEnabled = emailEnabled && phoneEnabled;
 
   const [activeTab, setActiveTab] = useState<'phone' | 'email'>('phone');
   const [mode, setMode] = useState<'register' | 'login'>('register');
   const [step, setStep] = useState<'input' | 'otp'>('input');
 
   const [identifier, setIdentifier] = useState('');
+  const [phoneValid, setPhoneValid] = useState(false);
   const [fullName, setFullName] = useState('');
   const [otp, setOtp] = useState('');
 
@@ -44,10 +51,20 @@ export const AuthModal: React.FC = () => {
 
   useEffect(() => {
     if (authModalOpen) {
-      setActiveTab(authModalConfig.defaultTab || 'phone');
+      const requestedTab = authModalConfig.defaultTab || 'phone';
+      // If the requested (or default) tab's channel is off, fall back to
+      // whichever channel the admin has actually left enabled.
+      const resolvedTab =
+        requestedTab === 'phone' && !phoneEnabled && emailEnabled
+          ? 'email'
+          : requestedTab === 'email' && !emailEnabled && phoneEnabled
+          ? 'phone'
+          : requestedTab;
+      setActiveTab(resolvedTab);
       setMode(authModalConfig.mode || 'register');
       setStep('input');
       setIdentifier('');
+      setPhoneValid(false);
       setFullName('');
       setOtp('');
       setError(null);
@@ -55,7 +72,7 @@ export const AuthModal: React.FC = () => {
       setDemoOtp(null);
       setCountdown(0);
     }
-  }, [authModalOpen, authModalConfig]);
+  }, [authModalOpen, authModalConfig, phoneEnabled, emailEnabled]);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
@@ -75,6 +92,11 @@ export const AuthModal: React.FC = () => {
     const clean = identifier.trim();
     if (!clean) {
       setError(activeTab === 'phone' ? 'Please enter your mobile phone number.' : 'Please enter your email address.');
+      return;
+    }
+
+    if (activeTab === 'phone' && !phoneValid) {
+      setError('Please enter a valid mobile number for the selected country.');
       return;
     }
 
@@ -190,7 +212,19 @@ export const AuthModal: React.FC = () => {
         </button>
 
         {/* Step 1: Input Details (Register / Login) */}
-        {step === 'input' && (
+        {step === 'input' && !emailEnabled && !phoneEnabled && (
+          <div className="text-center py-6">
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-600 mb-3 shadow-inner">
+              <AlertCircle className="h-6 w-6" />
+            </div>
+            <h2 className="text-xl font-bold tracking-tight text-slate-900">Sign-up is temporarily unavailable</h2>
+            <p className="text-sm text-slate-500 mt-2">
+              Both email and phone verification have been disabled by the administrator. Please check back later.
+            </p>
+          </div>
+        )}
+
+        {step === 'input' && (emailEnabled || phoneEnabled) && (
           <div>
             {/* Title & Badge */}
             <div className="text-center mb-6">
@@ -211,41 +245,44 @@ export const AuthModal: React.FC = () => {
               </p>
             </div>
 
-            {/* Identifier Channel Switcher (Phone vs Email) */}
-            <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-100 mb-5">
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('phone');
-                  setIdentifier('');
-                  setError(null);
-                }}
-                className={`flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
-                  activeTab === 'phone'
-                    ? 'bg-white text-slate-900 shadow-sm shadow-slate-300/50'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Smartphone className="h-4 w-4 text-indigo-600" />
-                Mobile Phone
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('email');
-                  setIdentifier('');
-                  setError(null);
-                }}
-                className={`flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
-                  activeTab === 'email'
-                    ? 'bg-white text-slate-900 shadow-sm shadow-slate-300/50'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Mail className="h-4 w-4 text-indigo-600" />
-                Email Address
-              </button>
-            </div>
+            {/* Identifier Channel Switcher (Phone vs Email) — only shown when both are enabled */}
+            {bothChannelsEnabled && (
+              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-100 mb-5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('phone');
+                    setIdentifier('');
+                    setPhoneValid(false);
+                    setError(null);
+                  }}
+                  className={`flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                    activeTab === 'phone'
+                      ? 'bg-white text-slate-900 shadow-sm shadow-slate-300/50'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Smartphone className="h-4 w-4 text-indigo-600" />
+                  Mobile Phone
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('email');
+                    setIdentifier('');
+                    setError(null);
+                  }}
+                  className={`flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                    activeTab === 'email'
+                      ? 'bg-white text-slate-900 shadow-sm shadow-slate-300/50'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Mail className="h-4 w-4 text-indigo-600" />
+                  Email Address
+                </button>
+              </div>
+            )}
 
             {/* Error banner */}
             {error && (
@@ -278,30 +315,32 @@ export const AuthModal: React.FC = () => {
                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
                   {activeTab === 'phone' ? 'Mobile Phone Number' : 'Email Address'}
                 </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                    {activeTab === 'phone' ? (
-                      <Smartphone className="h-4 w-4 text-indigo-500" />
-                    ) : (
-                      <Mail className="h-4 w-4 text-indigo-500" />
-                    )}
-                  </div>
-                  <input
-                    type={activeTab === 'phone' ? 'tel' : 'email'}
-                    required
-                    value={identifier}
-                    onChange={(e) => setIdentifier(e.target.value)}
-                    placeholder={
-                      activeTab === 'phone'
-                        ? '+1 234 567 8900 or 01712345678'
-                        : 'example@email.com'
-                    }
-                    className="w-full rounded-xl border border-slate-300 pl-10 pr-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-600 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
+                {activeTab === 'phone' ? (
+                  <PhoneNumberInput
+                    onChange={(e164, valid) => {
+                      setIdentifier(e164);
+                      setPhoneValid(valid);
+                    }}
+                    disabled={loading}
                   />
-                </div>
+                ) : (
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                      <Mail className="h-4 w-4 text-indigo-500" />
+                    </div>
+                    <input
+                      type="email"
+                      required
+                      value={identifier}
+                      onChange={(e) => setIdentifier(e.target.value)}
+                      placeholder="example@email.com"
+                      className="w-full rounded-xl border border-slate-300 pl-10 pr-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-600 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
+                    />
+                  </div>
+                )}
                 <p className="text-[11px] text-slate-400 mt-1.5">
                   {activeTab === 'phone'
-                    ? 'We will send a 4-digit verification code to this phone number via SMS.'
+                    ? 'Select your country, then enter your mobile number without the country code.'
                     : 'We will send a 4-digit verification code to this email.'}
                 </p>
               </div>
