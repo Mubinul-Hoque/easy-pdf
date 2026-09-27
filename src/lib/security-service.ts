@@ -1,8 +1,17 @@
-import { query } from './db';
+import { query, cachedQuery, invalidateQueryCache } from './db';
 
 export interface SecurityAuditLog {
   id: string;
-  eventType: 'LOGIN_SUCCESS' | 'LOGIN_FAILED' | 'STORAGE_PURGED' | 'PLAN_MODIFIED' | 'USER_SUSPENDED' | 'TOOL_MODIFIED' | 'IP_BANNED';
+  eventType:
+    | 'LOGIN_SUCCESS'
+    | 'LOGIN_FAILED'
+    | 'STORAGE_PURGED'
+    | 'PLAN_MODIFIED'
+    | 'USER_SUSPENDED'
+    | 'TOOL_MODIFIED'
+    | 'IP_BANNED'
+    | 'IP_UNBANNED'
+    | 'SECURITY_SETTINGS_UPDATED';
   actorEmail: string;
   ipAddress: string;
   userAgent?: string;
@@ -18,8 +27,17 @@ export interface BannedIP {
   createdAt: string;
 }
 
-// In-memory runtime fallback records
-let RUNTIME_AUDIT_LOGS: SecurityAuditLog[] = [
+// In-memory runtime fallback records — kept on globalThis (like the OTP store,
+// settings cache, and MySQL pool elsewhere in this codebase) so state survives
+// Next.js dev-mode module reloads across route handlers. Arrays are mutated
+// in place (push/unshift/splice), never reassigned, so the globalThis
+// reference stays valid.
+declare global {
+  var __easypdf_security_audit_logs: SecurityAuditLog[] | undefined;
+  var __easypdf_banned_ips: BannedIP[] | undefined;
+}
+
+const DEFAULT_AUDIT_LOGS: SecurityAuditLog[] = [
   {
     id: 'log_001',
     eventType: 'LOGIN_SUCCESS',
@@ -55,7 +73,7 @@ let RUNTIME_AUDIT_LOGS: SecurityAuditLog[] = [
   },
 ];
 
-let RUNTIME_BANNED_IPS: BannedIP[] = [
+const DEFAULT_BANNED_IPS: BannedIP[] = [
   {
     id: 'ban_001',
     ipAddress: '194.26.29.114',
@@ -71,6 +89,13 @@ let RUNTIME_BANNED_IPS: BannedIP[] = [
     createdAt: '2026-08-20T09:25:00Z',
   },
 ];
+
+const RUNTIME_AUDIT_LOGS: SecurityAuditLog[] =
+  globalThis.__easypdf_security_audit_logs || DEFAULT_AUDIT_LOGS;
+const RUNTIME_BANNED_IPS: BannedIP[] = globalThis.__easypdf_banned_ips || DEFAULT_BANNED_IPS;
+
+globalThis.__easypdf_security_audit_logs = RUNTIME_AUDIT_LOGS;
+globalThis.__easypdf_banned_ips = RUNTIME_BANNED_IPS;
 
 export const securityService = {
   async getAuditLogs(limit: number = 30): Promise<SecurityAuditLog[]> {
@@ -123,6 +148,27 @@ export const securityService = {
     return newLog;
   },
 
+  /**
+   * Fast membership check used on every gated request. Backed by a short-lived
+   * cache (see cachedQuery) so enforcing bans doesn't add a DB round-trip per request.
+   */
+  async isIpBanned(ipAddress: string): Promise<boolean> {
+    if (!ipAddress) return false;
+    try {
+      const rows = await cachedQuery<{ ip_address: string }>(
+        `SELECT ip_address FROM banned_ips`,
+        [],
+        15 // 15s cache — banning takes effect within seconds, not on every request
+      );
+      if (rows) {
+        return rows.some((r) => r.ip_address === ipAddress);
+      }
+    } catch {
+      // Fallback to in-memory list
+    }
+    return RUNTIME_BANNED_IPS.some((b) => b.ipAddress === ipAddress);
+  },
+
   async getBannedIPs(): Promise<BannedIP[]> {
     try {
       const rows = await query<any>(
@@ -155,6 +201,7 @@ export const securityService = {
     } catch {
       // Fallback
     }
+    invalidateQueryCache('banned_ips');
 
     await this.logEvent({
       eventType: 'IP_BANNED',
@@ -166,13 +213,25 @@ export const securityService = {
     return entry;
   },
 
-  async unbanIP(id: string): Promise<boolean> {
-    RUNTIME_BANNED_IPS = RUNTIME_BANNED_IPS.filter((b) => b.id !== id);
+  async unbanIP(id: string, unbannedBy: string = 'System Admin'): Promise<boolean> {
+    const existing = RUNTIME_BANNED_IPS.find((b) => b.id === id);
+    // Mutate in place (not a reassignment) so the globalThis reference stays valid.
+    const idx = RUNTIME_BANNED_IPS.findIndex((b) => b.id === id);
+    if (idx !== -1) RUNTIME_BANNED_IPS.splice(idx, 1);
     try {
       await query(`DELETE FROM banned_ips WHERE id = ?`, [id]);
     } catch {
       // Fallback
     }
+    invalidateQueryCache('banned_ips');
+
+    await this.logEvent({
+      eventType: 'IP_UNBANNED',
+      actorEmail: unbannedBy,
+      ipAddress: '127.0.0.1',
+      details: { unbannedIp: existing?.ipAddress || id },
+    });
+
     return true;
   },
 };

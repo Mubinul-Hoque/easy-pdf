@@ -25,6 +25,13 @@ function getUserJwtSecret(): string {
     return _userJwtSecret;
   }
 
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      '[EasyPDF Security] JWT_SECRET or ADMIN_SECRET environment variable is not set or is too short (minimum 32 chars). ' +
+        'Set a strong random secret before starting the production server.'
+    );
+  }
+
   // Stable development secret
   _userJwtSecret = 'easypdf_user_auth_session_secret_key_minimum_32_chars_2026';
   return _userJwtSecret;

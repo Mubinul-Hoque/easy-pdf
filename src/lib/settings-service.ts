@@ -18,6 +18,35 @@ if (process.env.NODE_ENV !== 'production') {
   globalThis.__easypdf_site_settings = cachedSettings;
 }
 
+const ALLOWED_BRANDING_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.ico']);
+
+/**
+ * Validate that a buffer's magic bytes match the claimed image extension.
+ * Prevents disguising arbitrary content (e.g. HTML/JS) behind an image extension.
+ */
+function isValidImageBuffer(buffer: Buffer, ext: string): boolean {
+  if (!buffer || buffer.length < 4) return false;
+
+  switch (ext) {
+    case '.png':
+      return buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+    case '.jpg':
+    case '.jpeg':
+      return buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+    case '.webp':
+      return (
+        buffer.length >= 12 &&
+        buffer.toString('ascii', 0, 4) === 'RIFF' &&
+        buffer.toString('ascii', 8, 12) === 'WEBP'
+      );
+    case '.ico':
+      // ICO header: 00 00 01 00
+      return buffer[0] === 0x00 && buffer[1] === 0x00 && buffer[2] === 0x01 && buffer[3] === 0x00;
+    default:
+      return false;
+  }
+}
+
 let settingsTableEnsured = false;
 export async function ensureSettingsTable(): Promise<void> {
   if (settingsTableEnsured) return;
@@ -118,13 +147,28 @@ export const settingsService = {
 
   /**
    * Saves uploaded branding file (Logo or Favicon) to public/uploads/branding/
+   *
+   * Only a fixed set of image extensions is accepted, and the file's magic
+   * bytes must match — this is a publicly-served directory, so accepting an
+   * arbitrary extension (.html, .svg, .js, ...) would let an authenticated
+   * admin host arbitrary content/script from the app's own origin.
    */
   async saveBrandingFile(
     fileBuffer: Buffer,
     originalName: string,
     type: 'logo' | 'favicon'
   ): Promise<string> {
-    const ext = path.extname(originalName).toLowerCase() || (type === 'favicon' ? '.ico' : '.png');
+    const requestedExt = path.extname(originalName).toLowerCase();
+    const ext = ALLOWED_BRANDING_EXTENSIONS.has(requestedExt)
+      ? requestedExt
+      : type === 'favicon'
+      ? '.ico'
+      : '.png';
+
+    if (!isValidImageBuffer(fileBuffer, ext)) {
+      throw new Error('Uploaded file is not a valid image of the expected type.');
+    }
+
     const fileName = `${type}_${Date.now()}${ext}`;
 
     const brandingDir = path.join(process.cwd(), 'public', 'uploads', 'branding');

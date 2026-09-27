@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { securityService } from '@/lib/security-service';
 import { parseAdminSessionToken, ADMIN_CONFIG } from '@/lib/admin-auth';
 import { safeApiError, extractBearerToken } from '@/lib/api-security';
+import { getSecuritySettings, updateSecuritySettings } from '@/lib/security-settings';
 
 // Strict IPv4 and abbreviated IPv6 validation
 const IP_REGEX =
@@ -16,7 +17,8 @@ export async function GET(req: NextRequest) {
 
     const logs = await securityService.getAuditLogs(40);
     const bannedIps = await securityService.getBannedIPs();
-    return NextResponse.json({ success: true, logs, bannedIps });
+    const securitySettings = await getSecuritySettings();
+    return NextResponse.json({ success: true, logs, bannedIps, securitySettings });
   } catch (err) {
     return NextResponse.json(safeApiError(err, 'Failed to load security data.'), { status: 500 });
   }
@@ -51,8 +53,19 @@ export async function POST(req: NextRequest) {
       if (!banId) {
         return NextResponse.json({ success: false, error: { code: 'INVALID_INPUT', message: 'Missing or invalid ban ID' } }, { status: 400 });
       }
-      await securityService.unbanIP(banId);
+      await securityService.unbanIP(banId, admin.name);
       return NextResponse.json({ success: true, message: 'IP unbanned successfully' });
+    }
+
+    if (action === 'updateSecuritySettings') {
+      const updated = await updateSecuritySettings(body.settings || {});
+      await securityService.logEvent({
+        eventType: 'SECURITY_SETTINGS_UPDATED',
+        actorEmail: admin.email,
+        ipAddress: '127.0.0.1',
+        details: { message: 'Rate limiting / IP ban enforcement configuration updated' },
+      });
+      return NextResponse.json({ success: true, securitySettings: updated });
     }
 
     return NextResponse.json({ success: false, error: { code: 'INVALID_ACTION', message: 'Invalid action' } }, { status: 400 });

@@ -23,14 +23,21 @@ function getAdminJwtSecret(): string {
     return _adminJwtSecret;
   }
 
-  // Safe fallback secret key (>= 32 chars)
-  _adminJwtSecret = 'easypdf_secure_admin_jwt_secret_signing_key_32_chars_2026';
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      '[EasyPDF Security] ADMIN_SECRET or JWT_SECRET environment variable is not set or is too short (minimum 32 chars). ' +
+        'Set a strong random secret before starting the production server.'
+    );
+  }
+
+  // Development: stable deterministic secret so hot-reloads share the same key
+  _adminJwtSecret = 'easypdf_dev_fixed_admin_secret_key_session_signing_min_32_chars_2026';
   return _adminJwtSecret;
 }
 
 export const ADMIN_CONFIG = {
-  defaultEmail: process.env.ADMIN_EMAIL || 'mubinulhq@gmail.com',
-  defaultName: process.env.ADMIN_NAME || 'Mubinul Hoque',
+  defaultEmail: process.env.ADMIN_EMAIL || '',
+  defaultName: process.env.ADMIN_NAME || 'Administrator',
   sessionCookieName: 'easypdf_admin_token',
   get jwtSecret() { return getAdminJwtSecret(); },
   sessionTtlMs: 1000 * 60 * 60 * 8, // 8-hour sessions
@@ -52,8 +59,18 @@ function derivePasswordHmac(password: string): Buffer {
  * Never returns the reason a specific field failed (prevents enumeration).
  */
 export function verifyAdminCredentials(email: string, password: string): AdminUser | null {
-  const configuredEmail = (process.env.ADMIN_EMAIL || 'mubinulhq@gmail.com').trim().toLowerCase();
-  const configuredPassword = (process.env.ADMIN_PASSWORD || '606505').trim();
+  const configuredEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  const configuredPassword = (process.env.ADMIN_PASSWORD || '').trim();
+
+  // No hardcoded fallback credentials: if the admin account isn't configured
+  // via environment variables, deny all admin logins rather than accepting
+  // a well-known default (which would be visible to anyone with repo access).
+  if (!configuredEmail || !configuredPassword) {
+    console.error(
+      '[EasyPDF Security] ADMIN_EMAIL / ADMIN_PASSWORD are not configured. All admin logins are being denied until they are set.'
+    );
+    return null;
+  }
 
   const cleanEmail = (email || '').trim().toLowerCase();
   const cleanPassword = (password || '').trim();

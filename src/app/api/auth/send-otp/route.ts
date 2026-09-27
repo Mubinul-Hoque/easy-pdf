@@ -2,9 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { otpService, normalizeIdentifier, isValidIdentifier } from '@/lib/otp-service';
 import { dbService } from '@/lib/db';
 import { safeApiError } from '@/lib/api-security';
+import { enforceSecurityGate } from '@/lib/security-gate';
 
 export async function POST(req: NextRequest) {
   try {
+    const gate = await enforceSecurityGate(req.headers, 'otpSend');
+    if (gate.blocked) return gate.response!;
+
     const body = await req.json().catch(() => ({}));
     const { identifier: rawIdentifier, type = 'register' } = body;
 

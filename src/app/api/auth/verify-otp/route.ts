@@ -7,10 +7,14 @@ import {
   AuthUser,
 } from '@/lib/user-auth';
 import { safeApiError } from '@/lib/api-security';
+import { enforceSecurityGate } from '@/lib/security-gate';
 import crypto from 'crypto';
 
 export async function POST(req: NextRequest) {
   try {
+    const gate = await enforceSecurityGate(req.headers, 'otpVerify');
+    if (gate.blocked) return gate.response!;
+
     const body = await req.json().catch(() => ({}));
     const {
       identifier: rawIdentifier,

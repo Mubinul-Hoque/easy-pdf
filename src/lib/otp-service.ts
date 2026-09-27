@@ -179,7 +179,10 @@ export const otpService = {
       cooldownSeconds: cooldownSec,
       expiresInSeconds: 600,
       message: `A 4-digit verification code has been sent to your ${channel === 'email' ? 'email address' : 'mobile phone'}.`,
-      demoOtp: otpCode,
+      // Never echo the real OTP back to the client in production — it must
+      // only reach the user via the actual email/SMS channel. Exposed only
+      // in local development to make manual testing convenient.
+      demoOtp: process.env.NODE_ENV === 'production' ? undefined : otpCode,
     };
   },
 

@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateSignedFileToken, sanitizeStorageKey } from '@/lib/file-security';
+import { enforceSecurityGate } from '@/lib/security-gate';
 
 export async function POST(req: NextRequest) {
   try {
+    const gate = await enforceSecurityGate(req.headers, 'general');
+    if (gate.blocked) return gate.response!;
+
     const body = await req.json().catch(() => ({}));
     const { filename, sizeBytes, mimeType, userId } = body;
 

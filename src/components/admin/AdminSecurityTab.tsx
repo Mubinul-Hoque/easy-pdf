@@ -13,18 +13,46 @@ import {
   CheckCircle2,
   XCircle,
   Plus,
+  Gauge,
+  Save,
 } from 'lucide-react';
 import { SecurityAuditLog, BannedIP } from '@/lib/security-service';
+import { SecuritySettings, RateLimitCategory } from '@/lib/security-settings';
 
 interface AdminSecurityTabProps {
   token?: string;
   onNotification?: (msg: string) => void;
 }
 
+const RATE_LIMIT_LABELS: Record<RateLimitCategory, { title: string; description: string }> = {
+  adminLogin: {
+    title: 'Admin Login',
+    description: 'Failed/attempted logins to this admin panel, per IP.',
+  },
+  otpSend: {
+    title: 'OTP Send',
+    description: 'Verification-code requests (register/login), per IP.',
+  },
+  otpVerify: {
+    title: 'OTP Verify',
+    description: 'Verification-code submission attempts, per IP.',
+  },
+  apiActions: {
+    title: 'PDF API Actions',
+    description: 'Merge/split/compress/etc. job submissions, per IP.',
+  },
+  general: {
+    title: 'General API',
+    description: 'Other public endpoints (e.g. upload ticket issuance), per IP.',
+  },
+};
+
 export const AdminSecurityTab: React.FC<AdminSecurityTabProps> = ({ token, onNotification }) => {
   const [logs, setLogs] = useState<SecurityAuditLog[]>([]);
   const [bannedIps, setBannedIps] = useState<BannedIP[]>([]);
+  const [security, setSecurity] = useState<SecuritySettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [savingSecurity, setSavingSecurity] = useState(false);
   const [newIp, setNewIp] = useState('');
   const [newReason, setNewReason] = useState('');
   const [addingBan, setAddingBan] = useState(false);
@@ -39,6 +67,7 @@ export const AdminSecurityTab: React.FC<AdminSecurityTabProps> = ({ token, onNot
       if (data.success) {
         setLogs(data.logs || []);
         setBannedIps(data.bannedIps || []);
+        setSecurity(data.securitySettings || null);
       }
     } catch (err) {
       console.error(err);
@@ -100,8 +129,144 @@ export const AdminSecurityTab: React.FC<AdminSecurityTabProps> = ({ token, onNot
     }
   };
 
+  const updateRuleField = (
+    category: RateLimitCategory,
+    field: 'enabled' | 'maxRequests' | 'windowSeconds',
+    value: boolean | number
+  ) => {
+    setSecurity((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        rateLimits: {
+          ...prev.rateLimits,
+          [category]: { ...prev.rateLimits[category], [field]: value },
+        },
+      };
+    });
+  };
+
+  const handleSaveSecuritySettings = async () => {
+    if (!security) return;
+    try {
+      setSavingSecurity(true);
+      const res = await fetch('/api/admin/security', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ action: 'updateSecuritySettings', settings: security }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSecurity(data.securitySettings);
+        if (onNotification) onNotification('Security & rate limiting settings saved');
+      } else {
+        alert(data.error?.message || 'Failed to save security settings');
+      }
+    } catch (err: any) {
+      alert('Error saving security settings: ' + err.message);
+    } finally {
+      setSavingSecurity(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {/* 0. RATE LIMITING & THREAT CONTROLS */}
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Gauge className="h-5 w-5 text-indigo-600" />
+            <h3 className="font-bold text-xs uppercase tracking-wider text-slate-900">
+              Rate Limiting & Threat Controls
+            </h3>
+          </div>
+          <button
+            onClick={handleSaveSecuritySettings}
+            disabled={!security || savingSecurity}
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 text-xs font-bold text-white shadow-sm hover:bg-indigo-700 transition-colors disabled:opacity-50"
+          >
+            <Save className="h-3.5 w-3.5" />
+            {savingSecurity ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+
+        {!security ? (
+          <p className="text-xs text-slate-400">Loading configuration...</p>
+        ) : (
+          <>
+            {/* IP Ban Enforcement Toggle */}
+            <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 cursor-pointer">
+              <div>
+                <p className="text-xs font-bold text-slate-800">Enforce IP Ban List</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  When enabled, requests from banned IP addresses are rejected (403) on every gated endpoint below.
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={security.ipBanEnforcementEnabled}
+                onChange={(e) =>
+                  setSecurity((prev) => (prev ? { ...prev, ipBanEnforcementEnabled: e.target.checked } : prev))
+                }
+                className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+              />
+            </label>
+
+            {/* Per-category rate limit rules */}
+            <div className="divide-y divide-slate-100 border border-slate-100 rounded-2xl overflow-hidden">
+              {(Object.keys(RATE_LIMIT_LABELS) as RateLimitCategory[]).map((category) => {
+                const rule = security.rateLimits[category];
+                const label = RATE_LIMIT_LABELS[category];
+                return (
+                  <div key={category} className="p-4 flex flex-col sm:flex-row sm:items-center gap-3 bg-white">
+                    <div className="flex-1 min-w-[180px]">
+                      <p className="text-xs font-bold text-slate-800">{label.title}</p>
+                      <p className="text-[11px] text-slate-500">{label.description}</p>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                      <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600">
+                        <input
+                          type="checkbox"
+                          checked={rule.enabled}
+                          onChange={(e) => updateRuleField(category, 'enabled', e.target.checked)}
+                          className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        Enabled
+                      </label>
+
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min={1}
+                          max={100000}
+                          value={rule.maxRequests}
+                          onChange={(e) => updateRuleField(category, 'maxRequests', Number(e.target.value))}
+                          className="w-20 px-2 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        />
+                        <span className="text-[11px] text-slate-400">requests /</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={86400}
+                          value={rule.windowSeconds}
+                          onChange={(e) => updateRuleField(category, 'windowSeconds', Number(e.target.value))}
+                          className="w-20 px-2 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        />
+                        <span className="text-[11px] text-slate-400">sec</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+
       {/* 1. IP BANNING CONTROL */}
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
         <div className="flex items-center gap-2">

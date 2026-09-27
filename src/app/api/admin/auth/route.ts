@@ -5,15 +5,20 @@ import {
   parseAdminSessionToken,
   ADMIN_CONFIG,
 } from '@/lib/admin-auth';
-import { checkRateLimit, getClientIp } from '@/lib/rate-limiter';
 import { securityService } from '@/lib/security-service';
 import { safeApiError } from '@/lib/api-security';
+import { enforceSecurityGate } from '@/lib/security-gate';
 
 export async function POST(req: NextRequest) {
   try {
+    // IP-ban check applies to every admin auth action; the per-category rate
+    // limit below is applied only to the 'login' action specifically.
+    const gate = await enforceSecurityGate(req.headers);
+    if (gate.blocked) return gate.response!;
+    const clientIp = gate.clientIp;
+
     const body = await req.json().catch(() => ({}));
     const { action, email, password, token } = body;
-    const clientIp = getClientIp(req.headers);
     const userAgent = req.headers.get('user-agent') || 'Unknown';
 
     // A. Verify existing session token
@@ -27,26 +32,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Unauthorized or expired session' }, { status: 401 });
     }
 
-    // B. Login with credentials & Brute-Force Rate Limiting
+    // B. Login with credentials & Brute-Force Rate Limiting (admin-configurable)
     if (action === 'login') {
-      // Limit to 5 login attempts per 5 minutes per IP
-      const rateCheck = checkRateLimit(`login:${clientIp}`, 5, 300);
-      if (!rateCheck.allowed) {
+      const loginGate = await enforceSecurityGate(req.headers, 'adminLogin');
+      if (loginGate.blocked) {
         await securityService.logEvent({
           eventType: 'LOGIN_FAILED',
           actorEmail: (email || 'unknown').slice(0, 100),
           ipAddress: clientIp,
           userAgent,
-          details: { reason: 'Rate limit exceeded on admin login gateway', resetInSeconds: rateCheck.resetSeconds },
+          details: { reason: 'Rate limit exceeded on admin login gateway' },
         });
-
-        return NextResponse.json(
-          {
-            success: false,
-            error: `Too many failed login attempts. Please try again in ${rateCheck.resetSeconds} seconds.`,
-          },
-          { status: 429 }
-        );
+        return loginGate.response!;
       }
 
       const user = verifyAdminCredentials(email || '', password || '');
